@@ -1655,7 +1655,7 @@ with st.expander("📰 View Sentiment & Newsboard", expanded=False):
             st.error(f"Error fetching news for {news_ticker}: {e}")
 
 # ----------------- SIDEBAR AUTO-CLOSE ON OUTSIDE CLICK -----------------
-components.html("""
+st.iframe("""
 <script>
     const doc = window.parent.document;
     
@@ -1714,5 +1714,6 @@ components.html("""
         }
     }
 </script>
-""", height=0, width=0)
+""", height=1, width=1)
+
 
