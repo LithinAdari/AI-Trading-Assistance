@@ -5,6 +5,7 @@ import plotly.graph_objects as obj
 from plotly.subplots import make_subplots
 import json
 import os
+import sys
 import subprocess
 import yfinance as yf
 from datetime import datetime
@@ -517,7 +518,7 @@ log_container = st.sidebar.empty()
 if retrain_btn:
     with st.spinner("Executing Watchlist ML Pipeline..."):
         # Run scheduler as subprocess
-        cmd = ["python", "scheduler.py", "--tickers", ",".join(active_watchlist)]
+        cmd = [sys.executable, "scheduler.py", "--tickers", ",".join(active_watchlist)]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Pipeline executed successfully!")
@@ -529,7 +530,7 @@ if retrain_btn:
 if scan_btn:
     with st.spinner("Executing Full Market Scan (All Sectors)..."):
         # Run scheduler as subprocess with --all-sectors
-        cmd = ["python", "scheduler.py", "--all-sectors"]
+        cmd = [sys.executable, "scheduler.py", "--all-sectors"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Full market scan completed successfully!")
