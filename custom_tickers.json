@@ -1,0 +1,24 @@
+{
+    "tickers": [
+        "AEGISLOG.NS",
+        "INDOCO.NS",
+        "IRCTC.NS",
+        "TATAGOLD.NS",
+        "UNICHEMLAB.NS"
+    ],
+    "sectors": {
+        "Oil Gas & Consumable Fuels": [
+            "AEGISLOG.NS"
+        ],
+        "Drug Manufacturers - Specialty & Generic": [
+            "INDOCO.NS",
+            "UNICHEMLAB.NS"
+        ],
+        "Consumer Services": [
+            "IRCTC.NS"
+        ],
+        "Custom Tickers": [
+            "TATAGOLD.NS"
+        ]
+    }
+}

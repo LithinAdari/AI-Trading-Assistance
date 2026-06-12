@@ -1,0 +1,187 @@
+{
+    "last_scan_time": "2026-06-12 18:02:26",
+    "stocks": [
+        {
+            "Ticker": "ABINFRA.NS",
+            "Prev Close": 9.07,
+            "Live Price": 10.82,
+            "Change %": 19.29,
+            "Volume": 6496550
+        },
+        {
+            "Ticker": "AIIL.NS",
+            "Prev Close": 459.95,
+            "Live Price": 530.15,
+            "Change %": 15.26,
+            "Volume": 19070506
+        },
+        {
+            "Ticker": "ARIHANTCAP.NS",
+            "Prev Close": 61.95,
+            "Live Price": 69.03,
+            "Change %": 11.43,
+            "Volume": 2499739
+        },
+        {
+            "Ticker": "ASHOKLEY.NS",
+            "Prev Close": 138.58,
+            "Live Price": 152.45,
+            "Change %": 10.01,
+            "Volume": 69248910
+        },
+        {
+            "Ticker": "BETA.NS",
+            "Prev Close": 1476.0,
+            "Live Price": 1771.2,
+            "Change %": 20.0,
+            "Volume": 180651
+        },
+        {
+            "Ticker": "CLSEL.NS",
+            "Prev Close": 265.1,
+            "Live Price": 300.05,
+            "Change %": 13.18,
+            "Volume": 15949582
+        },
+        {
+            "Ticker": "EXXARO.NS",
+            "Prev Close": 6.4,
+            "Live Price": 7.67,
+            "Change %": 19.84,
+            "Volume": 8228780
+        },
+        {
+            "Ticker": "GOLDIAM.NS",
+            "Prev Close": 423.8,
+            "Live Price": 478.8,
+            "Change %": 12.98,
+            "Volume": 8081795
+        },
+        {
+            "Ticker": "HINDWAREAP.NS",
+            "Prev Close": 213.01,
+            "Live Price": 251.79,
+            "Change %": 18.21,
+            "Volume": 10879454
+        },
+        {
+            "Ticker": "IFCI.NS",
+            "Prev Close": 70.48,
+            "Live Price": 84.57,
+            "Change %": 19.99,
+            "Volume": 240533563
+        },
+        {
+            "Ticker": "IXIGO.NS",
+            "Prev Close": 158.84,
+            "Live Price": 178.22,
+            "Change %": 12.2,
+            "Volume": 11208757
+        },
+        {
+            "Ticker": "MANALIPETC.NS",
+            "Prev Close": 59.22,
+            "Live Price": 65.2,
+            "Change %": 10.1,
+            "Volume": 9287376
+        },
+        {
+            "Ticker": "MOTISONS.NS",
+            "Prev Close": 13.22,
+            "Live Price": 14.79,
+            "Change %": 11.88,
+            "Volume": 147050685
+        },
+        {
+            "Ticker": "MTARTECH.NS",
+            "Prev Close": 6306.0,
+            "Live Price": 7159.5,
+            "Change %": 13.53,
+            "Volume": 4306315
+        },
+        {
+            "Ticker": "NGLFINE.NS",
+            "Prev Close": 2716.5,
+            "Live Price": 3048.8,
+            "Change %": 12.23,
+            "Volume": 102122
+        },
+        {
+            "Ticker": "PARAS.NS",
+            "Prev Close": 989.1,
+            "Live Price": 1097.15,
+            "Change %": 10.92,
+            "Volume": 6076138
+        },
+        {
+            "Ticker": "RELCHEMQ.NS",
+            "Prev Close": 119.21,
+            "Live Price": 141.29,
+            "Change %": 18.52,
+            "Volume": 115553
+        },
+        {
+            "Ticker": "ROTO.NS",
+            "Prev Close": 58.16,
+            "Live Price": 64.52,
+            "Change %": 10.94,
+            "Volume": 17735857
+        },
+        {
+            "Ticker": "SCANSTL.NS",
+            "Prev Close": 33.49,
+            "Live Price": 37.51,
+            "Change %": 12.0,
+            "Volume": 45429
+        },
+        {
+            "Ticker": "SENORES.NS",
+            "Prev Close": 1160.7,
+            "Live Price": 1290.0,
+            "Change %": 11.14,
+            "Volume": 1347954
+        },
+        {
+            "Ticker": "SEPC.NS",
+            "Prev Close": 6.18,
+            "Live Price": 6.91,
+            "Change %": 11.81,
+            "Volume": 36817634
+        },
+        {
+            "Ticker": "TBZ.NS",
+            "Prev Close": 166.09,
+            "Live Price": 183.77,
+            "Change %": 10.64,
+            "Volume": 4349668
+        },
+        {
+            "Ticker": "TMCV.NS",
+            "Prev Close": 354.35,
+            "Live Price": 390.3,
+            "Change %": 10.15,
+            "Volume": 21114718
+        },
+        {
+            "Ticker": "TTML.NS",
+            "Prev Close": 42.15,
+            "Live Price": 46.44,
+            "Change %": 10.18,
+            "Volume": 55053911
+        },
+        {
+            "Ticker": "WENDT.NS",
+            "Prev Close": 6783.0,
+            "Live Price": 7681.5,
+            "Change %": 13.25,
+            "Volume": 195830
+        },
+        {
+            "Ticker": "YASHO.NS",
+            "Prev Close": 2553.2,
+            "Live Price": 2870.4,
+            "Change %": 12.42,
+            "Volume": 201290
+        }
+    ]
+}
