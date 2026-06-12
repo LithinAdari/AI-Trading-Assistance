@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import datetime
 import os
-from pandas_datareader import data as web
 from config import TICKERS, MACRO_TICKERS, FRED_MACRO_SERIES, TRAIN_YEARS
 
 def calculate_rsi(df: pd.DataFrame, period: int = 14) -> pd.Series:
