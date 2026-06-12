@@ -698,7 +698,7 @@ with p_add_col:
     add_date = st.date_input("Purchase Date", value=datetime.today())
     add_broker = st.selectbox("Trading Broker", list(BROKER_CONFIGS.keys()))
     
-    submitted = st.button("💼 Record Purchase", use_container_width=True)
+    submitted = st.button("💼 Record Purchase", width='stretch')
     if submitted:
         # Append transaction
         new_tx = {
@@ -856,7 +856,7 @@ with p_list_col:
         del_cols = st.columns([1, 4])
         with del_cols[0]:
             del_id = st.selectbox("Remove Record", options=[r["id"] for r in portfolio], format_func=lambda x: next(f"{r['ticker']} ({int(r['quantity'])} sh @ ₹{r['purchase_price']})" for r in portfolio if r["id"] == x))
-            del_btn = st.button("🗑️ Delete Transaction", use_container_width=True)
+            del_btn = st.button("🗑️ Delete Transaction", width='stretch')
             if del_btn:
                 portfolio = [r for r in portfolio if r["id"] != del_id]
                 save_portfolio(portfolio)
@@ -1246,7 +1246,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
                 )
             with col_add_btn:
                 st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-                add_btn = st.button("➕ Add to Watchlist Database", use_container_width=True, key="breakout_watchlist_add_btn")
+                add_btn = st.button("➕ Add to Watchlist Database", width='stretch', key="breakout_watchlist_add_btn")
                 if add_btn:
                     success, msg = add_ticker_to_watchlist(ticker_to_add)
                     if success:
@@ -1407,7 +1407,7 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         
-        st.plotly_chart(fig, use_container_width=True, key=f"plotly_hist_{chart_ticker}")
+        st.plotly_chart(fig, width='stretch', key=f"plotly_hist_{chart_ticker}")
     
         # ── Future Projection Analysis Chart ──
         if chart_ticker in predictions:
@@ -1502,7 +1502,7 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
             
-            st.plotly_chart(fig_proj, use_container_width=True, key=f"plotly_proj_{chart_ticker}")
+            st.plotly_chart(fig_proj, width='stretch', key=f"plotly_proj_{chart_ticker}")
             
             # ── Historical Prediction Error Margin Analysis ──
             val_errors_all = pred.get("validation_errors", [])
@@ -1655,7 +1655,7 @@ with st.expander("📰 View Sentiment & Newsboard", expanded=False):
             st.error(f"Error fetching news for {news_ticker}: {e}")
 
 # ----------------- SIDEBAR AUTO-CLOSE ON OUTSIDE CLICK -----------------
-components.html("""
+st.html("""
 <script>
     const doc = window.parent.document;
     

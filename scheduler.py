@@ -21,7 +21,7 @@ def main():
     parser.add_argument(
         "--scan-breakouts",
         action="store_true",
-        help="Scan all Indian stocks for +10% daily breakouts and save results"
+        help="Scan all Indian stocks for +10%% daily breakouts and save results"
     )
     
     args = parser.parse_args()
