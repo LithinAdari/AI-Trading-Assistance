@@ -186,6 +186,29 @@ st.markdown("""
             border-radius: 8px;
             overflow: hidden;
         }
+        
+        /* 📱 Responsive UI for Mobile & Tablets */
+        @media (max-width: 768px) {
+            .metric-val { font-size: 1.6rem !important; }
+            .metric-card { padding: 12px !important; }
+            h1 { font-size: 1.8rem !important; }
+            h2 { font-size: 1.5rem !important; }
+            h3 { font-size: 1.2rem !important; }
+            .section-header { margin-bottom: 12px !important; padding-bottom: 4px !important; }
+            
+            /* Make dataframe fonts readable on mobile */
+            div[data-testid="stDataFrame"] { font-size: 0.85rem !important; }
+            
+            /* Streamlit specific layout overrides for mobile */
+            .css-1544g2n { padding: 1rem 1rem 1.5rem !important; }
+            .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; }
+        }
+        
+        /* 💻 Responsive UI for Small Laptops */
+        @media (min-width: 769px) and (max-width: 1024px) {
+            .metric-val { font-size: 1.9rem !important; }
+            .metric-card { padding: 16px !important; }
+        }
     </style>
 """, unsafe_allow_html=True)
 
