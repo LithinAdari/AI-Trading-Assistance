@@ -1321,16 +1321,28 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
         else:
             # Build list of dicts for presentation
             table_rows = []
+            present_count = 0
+            missing_count = 0
             for s in filtered_stocks:
+                is_present = s['Ticker'] in all_price_tickers
+                status_html = "<span style='color:#10B981;font-weight:600;'>Present</span>" if is_present else "<span style='color:#F59E0B;font-weight:600;'>Missing</span>"
+                
+                if is_present:
+                    present_count += 1
+                else:
+                    missing_count += 1
+                    
                 vol_formatted = f"{s['Volume']:,}" if s['Volume'] > 0 else "—"
                 table_rows.append({
                     "Ticker Symbol": f"<b>{s['Ticker']}</b>",
                     "Previous Close": f"₹{s['Prev Close']:.2f}",
                     "Live/Close Price": f"₹{s['Live Price']:.2f}",
                     "Daily Return": f"<span style='color:#10B981;font-weight:700;'>+{s['Change %']:.2f}%</span>",
-                    "Today's Volume": vol_formatted
+                    "Today's Volume": vol_formatted,
+                    "Pool Status": status_html
                 })
             df_breakout = pd.DataFrame(table_rows)
+            st.markdown(f"**Main Ticker Pool Status:** <span style='color:#10B981;font-weight:bold;font-size:1.1em;'>{present_count} Present</span> | <span style='color:#F59E0B;font-weight:bold;font-size:1.1em;'>{missing_count} Missing</span>", unsafe_allow_html=True)
             st.markdown(df_breakout.to_html(escape=False, index=False), unsafe_allow_html=True)
             
             # Action: select and add to watchlist
