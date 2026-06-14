@@ -1641,7 +1641,7 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         This table tracks the historical predictions from the backtesting dataset, comparing the stock price on the prediction day against what was predicted and what actually occurred 5 trading days later.
                     """)
 
-                    col_inspect_count, _ = st.columns([2.0, 3.0])
+                    col_inspect_count, col_strategy = st.columns([1.5, 2.5])
                     with col_inspect_count:
                         num_rows = st.selectbox(
                             "🔍 Show Last N Predictions",
@@ -1649,6 +1649,14 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                             index=2 if len(val_errors_all) >= 15 else (1 if len(val_errors_all) >= 10 else 0),
                             format_func=lambda x: "All Predictions" if x == len(val_errors_all) else f"Last {x} Predictions",
                             key=f"val_inspect_count_{chart_ticker}"
+                        )
+                    with col_strategy:
+                        strategy = st.selectbox(
+                            "🎯 Trend Prediction Strategy",
+                            options=["Ensemble (Classifier + Regressor)", "Classifier Only", "Regressor Sign (Baseline)"],
+                            index=0,
+                            key=f"val_strategy_{chart_ticker}",
+                            help="Choose which model outputs determine the predicted market trend direction."
                         )
 
                     # Render history rows (most recent first)
@@ -1664,8 +1672,14 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
 
                         # Trend Match Logic
-                        pred_dir = 1 if pred_ret >= 0 else -1
                         act_dir = 1 if actual_ret >= 0 else -1
+                        if strategy == "Classifier Only":
+                            pred_dir = rec.get("clf_predicted_direction", 1 if pred_ret >= 0 else -1)
+                        elif strategy == "Ensemble (Classifier + Regressor)":
+                            pred_dir = rec.get("ensemble_predicted_direction", 1 if pred_ret >= 0 else -1)
+                        else:  # Regressor Sign (Baseline)
+                            pred_dir = 1 if pred_ret >= 0 else -1
+
                         is_trend_match = "+1" if pred_dir == act_dir else "-1"
                         trend_color = "#10B981" if is_trend_match == "+1" else "#EF4444"
                         
@@ -1696,7 +1710,8 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         })
 
                     df_err = pd.DataFrame(err_rows)
-                    st.markdown(f"**Total Trend Matches in Selection:** <span style='color:#10B981;font-weight:bold;font-size:1.1em;'>{total_trend_matches} / {len(recent_recs)}</span>", unsafe_allow_html=True)
+                    accuracy_pct = (total_trend_matches / len(recent_recs)) * 100 if len(recent_recs) > 0 else 0
+                    st.markdown(f"**Total Trend Matches in Selection:** <span style='color:#10B981;font-weight:bold;font-size:1.1em;'>{total_trend_matches} / {len(recent_recs)} ({accuracy_pct:.1f}%)</span>", unsafe_allow_html=True)
                     st.markdown(df_err.to_html(escape=False, index=False), unsafe_allow_html=True)
                 else:
                     st.markdown("<br>", unsafe_allow_html=True)

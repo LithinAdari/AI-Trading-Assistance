@@ -140,9 +140,12 @@ TRAIN_YEARS = 4  # Pull 4 years of historical data
 
 MODEL_PARAMS = {
     "classifier": {
-        "n_estimators": 100,
-        "max_depth": 3,
-        "learning_rate": 0.05,
+        "n_estimators": 200,
+        "max_depth": 5,
+        "learning_rate": 0.03,
+        "min_child_weight": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
         "random_state": 42,
         "eval_metric": "logloss"
     },

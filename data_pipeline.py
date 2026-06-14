@@ -125,6 +125,28 @@ def build_ticker_features(ticker: str, start_date: datetime.date, end_date: date
     df['Return_Daily'] = df['Close'].pct_change()
     df['Volatility_30'] = df['Return_Daily'].rolling(window=30, min_periods=1).std()
 
+    # New Momentum & Volume Features (Method 2)
+    # 1. MACD Signal (MACD Line - Signal Line)
+    ema_12 = df['Close'].ewm(span=12, adjust=False).mean()
+    ema_26 = df['Close'].ewm(span=26, adjust=False).mean()
+    macd = ema_12 - ema_26
+    signal = macd.ewm(span=9, adjust=False).mean()
+    df['MACD_Signal'] = macd - signal
+
+    # 2. Volume Ratio (Volume / 20-day average volume)
+    df['Volume_Ratio'] = df['Volume'] / df['Volume'].rolling(window=20, min_periods=1).mean().replace(0.0, 1e-9)
+
+    # 3. Price Momentum 10 (10-day price rate of change)
+    df['Price_Momentum_10'] = df['Close'].pct_change(10)
+
+    # 4. Bollinger Band Position
+    sma_20 = df['Close'].rolling(window=20, min_periods=1).mean()
+    std_20 = df['Close'].rolling(window=20, min_periods=1).std()
+    upper_band = sma_20 + 2 * std_20
+    lower_band = sma_20 - 2 * std_20
+    band_width = upper_band - lower_band
+    df['BB_Position'] = (df['Close'] - lower_band) / band_width.replace(0.0, 1e-9)
+
     # Join Macro Data
     # Convert indexes to datetime to ensure alignment
     df.index = pd.to_datetime(df.index)
@@ -146,7 +168,7 @@ def build_ticker_features(ticker: str, start_date: datetime.date, end_date: date
     df.drop(columns=['Return_Daily'], inplace=True)
     
     # Fill remaining NaNs from moving averages gracefully
-    df.ffill().bfill(inplace=True)
+    df = df.ffill().bfill()
     
     return df
 

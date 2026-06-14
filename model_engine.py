@@ -7,7 +7,10 @@ from config import MODELS_DIR, MODEL_PARAMS, TRAIN_HORIZON_DAYS, RECOMMENDATIONS
 from broker_charges import calculate_charges
 
 # Features to feed into models
-FEATURES = ['RSI_14', 'ATR_14_Pct', 'Close_to_SMA_50', 'SMA_50_to_200', 'Volatility_30', 'Crude_Oil_Z']
+FEATURES = [
+    'RSI_14', 'ATR_14_Pct', 'Close_to_SMA_50', 'SMA_50_to_200', 'Volatility_30', 'Crude_Oil_Z',
+    'MACD_Signal', 'Volume_Ratio', 'Price_Momentum_10', 'BB_Position'
+]
 
 # Try importing XGBoost. If it's not working, we fall back to RandomForest.
 XGBOOST_AVAILABLE = False
@@ -34,7 +37,7 @@ def prepare_training_data(df: pd.DataFrame) -> tuple:
         df_clean['Sentiment'] = 0.0
         
     # Drop rows with NaNs in core features first
-    df_clean = df_clean.dropna(subset=['RSI_14', 'ATR_14', 'Close_to_SMA_50', 'SMA_50_to_200', 'Volatility_30', 'Crude_Oil_Z'])
+    df_clean = df_clean.dropna(subset=FEATURES)
 
     # Targets: Forward 5-day horizon
     df_clean['Future_Close'] = df_clean['Close'].shift(-TRAIN_HORIZON_DAYS)
@@ -94,8 +97,8 @@ def prepare_training_data(df: pd.DataFrame) -> tuple:
 def train_models(ticker: str, df: pd.DataFrame) -> dict:
     """
     Trains and saves Classifier and Regressor models for a ticker.
-    Uses an 80/20 chronological split — trains on older data, validates on recent data.
-    Returns training accuracy, out-of-sample validation accuracy, MAE, and dataset metadata.
+    Uses Walk-Forward Validation on unseen data, then fits final models on the entire dataset.
+    Returns training accuracy, walk-forward validation accuracy, MAE, and dataset metadata.
     """
     X_train, y_class, y_reg, X_test, y_class_test, y_reg_test, test_slice, data_meta = prepare_training_data(df)
     
@@ -108,30 +111,10 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
     
     algorithm_used = "RandomForest"
     
-    # 1. Classifier Training (on 80% historical train split)
-    if XGBOOST_AVAILABLE:
-        try:
-            params = MODEL_PARAMS["classifier"]
-            clf = xgb.XGBClassifier(**params)
-            clf.fit(X_train, y_class)
-            algorithm_used = "XGBoost"
-        except Exception as e:
-            print(f"XGBoost Classifier failed: {e}. Using RandomForest fallback.")
-            clf = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
-            clf.fit(X_train, y_class)
-    else:
-        clf = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
-        clf.fit(X_train, y_class)
-        
-    # Train accuracy vs. Out-of-sample validation accuracy (20% unseen data)
-    train_acc = accuracy_score(y_class, clf.predict(X_train))
-    val_acc   = accuracy_score(y_class_test, clf.predict(X_test)) if len(X_test) > 0 else 0.0
-    
-    # 2. Regressor Training with Dynamic Hyperparameter Tuning
-    best_reg = None
-    best_val_mae = float('inf')
+    # 1. Regressor Candidate Selection (on static 80% train split)
     best_alpha = 2.0
     best_lambda = 10.0
+    best_val_mae = float('inf')
     
     if XGBOOST_AVAILABLE:
         try:
@@ -141,9 +124,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                 (0.05, 1.0),   # Low
                 (0.0, 0.1)     # Minimal
             ]
-            
             base_params = MODEL_PARAMS["regressor"].copy()
-            
             for alpha, lam in reg_candidates:
                 candidate_params = base_params.copy()
                 candidate_params["reg_alpha"] = alpha
@@ -159,39 +140,168 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     
                 if val_mae_cand < best_val_mae:
                     best_val_mae = val_mae_cand
-                    best_reg = candidate_reg
                     best_alpha = alpha
                     best_lambda = lam
-            
-            reg = best_reg
-            print(f"[{ticker}] Dynamic Tuning Selected: reg_alpha={best_alpha}, reg_lambda={best_lambda} (Val MAE: {best_val_mae:.5f})")
         except Exception as e:
-            print(f"XGBoost Regressor tuning failed: {e}. Using RandomForest fallback.")
+            print(f"[{ticker}] Regressor hyperparameter selection failed: {e}. Using defaults.")
+    
+    # 2. Walk-Forward Validation Loop (Method 4)
+    val_pred_class = []
+    val_pred_prob = []
+    val_pred_reg = []
+    
+    df_clean = df.copy()
+    if 'Sentiment' not in df_clean.columns:
+        df_clean['Sentiment'] = 0.0
+    df_clean = df_clean.dropna(subset=FEATURES)
+    
+    df_clean['Future_Close'] = df_clean['Close'].shift(-TRAIN_HORIZON_DAYS)
+    df_clean['Target_Return'] = ((df_clean['Future_Close'] - df_clean['Close']) / df_clean['Close']).clip(-0.15, 0.15)
+    df_clean['Target_Direction'] = np.where(df_clean['Target_Return'] > 0.0, 1, 0)
+    df_clean = df_clean.dropna(subset=['Target_Return'])
+    
+    if len(X_test) > 0:
+        try:
+            step_size = 40
+            test_dates = X_test.index
+            i = 0
+            
+            while i < len(test_dates):
+                next_i = min(i + step_size, len(test_dates))
+                chunk_dates = test_dates[i:next_i]
+                first_test_date = chunk_dates[0]
+                
+                # Train data is everything prior to first_test_date
+                train_sub = df_clean[df_clean.index < first_test_date]
+                X_tr = train_sub[FEATURES]
+                y_cl_tr = train_sub['Target_Direction']
+                y_rg_tr = train_sub['Target_Return']
+                
+                # Test data is the chunk of dates
+                test_sub = df_clean.loc[chunk_dates]
+                X_te = test_sub[FEATURES]
+                
+                if len(X_te) == 0:
+                    break
+                
+                # Classifier Sub-model (Method 3 hyperparams applied)
+                if XGBOOST_AVAILABLE:
+                    clf_sub = xgb.XGBClassifier(**MODEL_PARAMS["classifier"])
+                    clf_sub.fit(X_tr, y_cl_tr)
+                else:
+                    clf_sub = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
+                    clf_sub.fit(X_tr, y_cl_tr)
+                    
+                # Regressor Sub-model
+                if XGBOOST_AVAILABLE:
+                    reg_params_sub = MODEL_PARAMS["regressor"].copy()
+                    reg_params_sub["reg_alpha"] = best_alpha
+                    reg_params_sub["reg_lambda"] = best_lambda
+                    reg_sub = xgb.XGBRegressor(**reg_params_sub)
+                    reg_sub.fit(X_tr, y_rg_tr)
+                else:
+                    reg_sub = RandomForestRegressor(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
+                    reg_sub.fit(X_tr, y_rg_tr)
+                    
+                pred_cl = clf_sub.predict(X_te)
+                try:
+                    pred_pb = clf_sub.predict_proba(X_te)[:, 1]
+                except AttributeError:
+                    pred_pb = [0.5] * len(X_te)
+                pred_rg = reg_sub.predict(X_te)
+                
+                val_pred_class.extend(pred_cl)
+                val_pred_prob.extend(pred_pb)
+                val_pred_reg.extend(pred_rg)
+                
+                i = next_i
+        except Exception as e:
+            print(f"[{ticker}] Walk-forward validation loop failed: {e}. Falling back to static validation.")
+            val_pred_class = []
+            
+    # 3. Final Saved Model Training (on 100% of labeled historical data)
+    X_full_labeled = df_clean[FEATURES]
+    y_class_full = df_clean['Target_Direction']
+    y_reg_full = df_clean['Target_Return']
+    
+    if XGBOOST_AVAILABLE:
+        try:
+            clf = xgb.XGBClassifier(**MODEL_PARAMS["classifier"])
+            clf.fit(X_full_labeled, y_class_full)
+            algorithm_used = "XGBoost"
+        except Exception as e:
+            print(f"XGBoost Final Classifier fit failed: {e}. Using RandomForest fallback.")
+            clf = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
+            clf.fit(X_full_labeled, y_class_full)
+    else:
+        clf = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
+        clf.fit(X_full_labeled, y_class_full)
+        
+    if XGBOOST_AVAILABLE:
+        try:
+            reg_params = MODEL_PARAMS["regressor"].copy()
+            reg_params["reg_alpha"] = best_alpha
+            reg_params["reg_lambda"] = best_lambda
+            reg = xgb.XGBRegressor(**reg_params)
+            reg.fit(X_full_labeled, y_reg_full)
+        except Exception as e:
+            print(f"XGBoost Final Regressor fit failed: {e}. Using RandomForest fallback.")
             reg = RandomForestRegressor(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
-            reg.fit(X_train, y_reg)
+            reg.fit(X_full_labeled, y_reg_full)
     else:
         reg = RandomForestRegressor(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
-        reg.fit(X_train, y_reg)
+        reg.fit(X_full_labeled, y_reg_full)
         
-    # Train MAE vs. Out-of-sample validation MAE
-    train_mae = mean_absolute_error(y_reg, reg.predict(X_train))
-    val_mae   = mean_absolute_error(y_reg_test, reg.predict(X_test)) if len(X_test) > 0 else 0.0
-    
+    # Safety fallback if walk-forward list sizes don't match the test split exactly
+    if len(val_pred_class) != len(X_test):
+        print(f"[{ticker}] Walk-forward size check: {len(val_pred_class)} vs expected {len(X_test)}. Falling back to static predictions.")
+        val_pred_class = clf.predict(X_test).tolist()
+        try:
+            val_pred_prob = clf.predict_proba(X_test)[:, 1].tolist()
+        except AttributeError:
+            val_pred_prob = [0.5] * len(X_test)
+        val_pred_reg = reg.predict(X_test).tolist()
+        
     joblib.dump(clf, clf_path)
     joblib.dump(reg, reg_path)
+    
+    # Calculate performance metrics
+    train_acc = accuracy_score(y_class_full, clf.predict(X_full_labeled))
+    val_acc = accuracy_score(y_class_test, val_pred_class) if len(X_test) > 0 else 0.0
+    
+    train_mae = mean_absolute_error(y_reg_full, reg.predict(X_full_labeled))
+    val_mae = mean_absolute_error(y_reg_test, val_pred_reg) if len(X_test) > 0 else 0.0
     
     # Compile validation error records (last 10 independent completed 5-day cycles)
     val_errors = []
     if len(test_slice) > 0:
         try:
-            y_reg_pred = reg.predict(X_test)
             raw_records = []
             for i in range(len(test_slice)):
                 date_t = str(test_slice.index[i].date())
                 close_t = float(test_slice['Close'].iloc[i])
                 future_close_t = float(test_slice['Future_Close'].iloc[i])
                 actual_ret = float(y_reg_test.iloc[i])
-                pred_ret = float(y_reg_pred[i])
+                
+                pred_ret = float(val_pred_reg[i])
+                clf_pred = int(val_pred_class[i])
+                clf_prob = float(val_pred_prob[i])
+                
+                # Direction definitions (1 = Up, -1 = Down)
+                clf_pred_dir = 1 if clf_pred == 1 else -1
+                reg_pred_dir = 1 if pred_ret >= 0 else -1
+                
+                # Method 5: Ensemble Direction
+                if clf_pred_dir == reg_pred_dir:
+                    ensemble_dir = clf_pred_dir
+                else:
+                    if clf_prob >= 0.6:
+                        ensemble_dir = 1
+                    elif clf_prob <= 0.4:
+                        ensemble_dir = -1
+                    else:
+                        ensemble_dir = clf_pred_dir
+                
                 err_margin = pred_ret - actual_ret
                 
                 raw_records.append({
@@ -200,9 +310,10 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     "actual_future_close": round(future_close_t, 2),
                     "actual_return_pct": round(actual_ret * 100, 2),
                     "predicted_return_pct": round(pred_ret * 100, 2),
-                    "error_margin_pct": round(err_margin * 100, 2)
+                    "error_margin_pct": round(err_margin * 100, 2),
+                    "clf_predicted_direction": clf_pred_dir,
+                    "ensemble_predicted_direction": ensemble_dir
                 })
-            # Save all raw validation records in chronological order
             val_errors = raw_records
         except Exception as e:
             print(f"Error compiling validation errors for {ticker}: {e}")
@@ -222,7 +333,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
         "algorithm":           algorithm_used,
         "features":            FEATURES,
         "validation_errors":   val_errors,
-        **data_meta   # inject all date/day metadata
+        **data_meta
     }
 
 def score_latest_session(ticker: str, latest_row: pd.DataFrame, latest_sentiment: float, current_price: float, current_atr: float) -> dict:
