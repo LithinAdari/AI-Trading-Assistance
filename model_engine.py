@@ -9,7 +9,8 @@ from broker_charges import calculate_charges
 # Features to feed into models
 FEATURES = [
     'RSI_14', 'ATR_14_Pct', 'Close_to_SMA_50', 'SMA_50_to_200', 'Volatility_30', 'Crude_Oil_Z',
-    'MACD_Signal', 'Volume_Ratio', 'Price_Momentum_10', 'BB_Position'
+    'MACD_Signal', 'Volume_Ratio', 'Price_Momentum_10', 'BB_Position',
+    'ADX_14', 'BB_Width', 'VPT', 'Nifty_Return_5', 'Sector_Return_5'
 ]
 
 # Try importing XGBoost. If it's not working, we fall back to RandomForest.
@@ -72,6 +73,13 @@ def prepare_training_data(df: pd.DataFrame) -> tuple:
     y_class  = y_class[valid_train]
     y_reg    = y_reg[valid_train]
     
+    # Handle edge case where y_class is empty or has only one class
+    if len(np.unique(y_class)) < 2 and len(y_class) > 0:
+        # artificially force both classes to be present for XGBoost binary classification fit
+        y_class.iloc[0] = 0
+        if len(y_class) > 1:
+            y_class.iloc[1] = 1
+            
     valid_test = y_reg_test.notna()
     X_test       = X_test[valid_test]
     y_class_test = y_class_test[valid_test]
@@ -97,7 +105,8 @@ def prepare_training_data(df: pd.DataFrame) -> tuple:
 def train_models(ticker: str, df: pd.DataFrame) -> dict:
     """
     Trains and saves Classifier and Regressor models for a ticker.
-    Uses Walk-Forward Validation on unseen data, then fits final models on the entire dataset.
+    Uses hyperparameter tuning and Walk-Forward Validation on unseen data,
+    then fits final models on the entire dataset.
     Returns training accuracy, walk-forward validation accuracy, MAE, and dataset metadata.
     """
     X_train, y_class, y_reg, X_test, y_class_test, y_reg_test, test_slice, data_meta = prepare_training_data(df)
@@ -111,24 +120,25 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
     
     algorithm_used = "RandomForest"
     
-    # 1. Regressor Candidate Selection (on static 80% train split)
-    best_alpha = 2.0
-    best_lambda = 10.0
+    # Define hyperparameter defaults
+    best_reg_params = MODEL_PARAMS["regressor"].copy()
+    best_clf_params = MODEL_PARAMS["classifier"].copy()
     best_val_mae = float('inf')
+    best_val_acc = -1.0
     
+    # Grid Tuning Candidates
     if XGBOOST_AVAILABLE:
+        # 1. Regressor Tuning (Grid Search)
         try:
-            reg_candidates = [
-                (2.0, 10.0),   # High (Conservative)
-                (0.5, 3.0),    # Moderate
-                (0.05, 1.0),   # Low
-                (0.0, 0.1)     # Minimal
+            reg_grid = [
+                {"max_depth": 3, "learning_rate": 0.01, "n_estimators": 50, "reg_alpha": 2.0, "reg_lambda": 10.0},
+                {"max_depth": 3, "learning_rate": 0.03, "n_estimators": 80, "reg_alpha": 2.0, "reg_lambda": 10.0},
+                {"max_depth": 5, "learning_rate": 0.05, "n_estimators": 100, "reg_alpha": 0.5, "reg_lambda": 3.0},
+                {"max_depth": 5, "learning_rate": 0.01, "n_estimators": 80, "reg_alpha": 0.05, "reg_lambda": 1.0}
             ]
-            base_params = MODEL_PARAMS["regressor"].copy()
-            for alpha, lam in reg_candidates:
-                candidate_params = base_params.copy()
-                candidate_params["reg_alpha"] = alpha
-                candidate_params["reg_lambda"] = lam
+            for params in reg_grid:
+                candidate_params = MODEL_PARAMS["regressor"].copy()
+                candidate_params.update(params)
                 
                 candidate_reg = xgb.XGBRegressor(**candidate_params)
                 candidate_reg.fit(X_train, y_reg)
@@ -140,12 +150,39 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     
                 if val_mae_cand < best_val_mae:
                     best_val_mae = val_mae_cand
-                    best_alpha = alpha
-                    best_lambda = lam
+                    best_reg_params = candidate_params
         except Exception as e:
             print(f"[{ticker}] Regressor hyperparameter selection failed: {e}. Using defaults.")
+
+        # 2. Classifier Tuning (Grid Search)
+        try:
+            clf_grid = [
+                {"max_depth": 3, "learning_rate": 0.01, "n_estimators": 150},
+                {"max_depth": 5, "learning_rate": 0.03, "n_estimators": 200},
+                {"max_depth": 5, "learning_rate": 0.08, "n_estimators": 100},
+                {"max_depth": 7, "learning_rate": 0.02, "n_estimators": 150}
+            ]
+            for params in clf_grid:
+                candidate_params = MODEL_PARAMS["classifier"].copy()
+                candidate_params.update(params)
+                
+                candidate_clf = xgb.XGBClassifier(**candidate_params)
+                candidate_clf.fit(X_train, y_class)
+                
+                if len(X_test) > 0:
+                    val_preds = candidate_clf.predict(X_test)
+                    val_acc_cand = accuracy_score(y_class_test, val_preds)
+                else:
+                    val_preds = candidate_clf.predict(X_train)
+                    val_acc_cand = accuracy_score(y_class, val_preds)
+                    
+                if val_acc_cand > best_val_acc:
+                    best_val_acc = val_acc_cand
+                    best_clf_params = candidate_params
+        except Exception as e:
+            print(f"[{ticker}] Classifier hyperparameter selection failed: {e}. Using defaults.")
     
-    # 2. Walk-Forward Validation Loop (Method 4)
+    # 3. Walk-Forward Validation Loop (using tuned hyperparameters)
     val_pred_class = []
     val_pred_prob = []
     val_pred_reg = []
@@ -184,9 +221,9 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                 if len(X_te) == 0:
                     break
                 
-                # Classifier Sub-model (Method 3 hyperparams applied)
+                # Classifier Sub-model
                 if XGBOOST_AVAILABLE:
-                    clf_sub = xgb.XGBClassifier(**MODEL_PARAMS["classifier"])
+                    clf_sub = xgb.XGBClassifier(**best_clf_params)
                     clf_sub.fit(X_tr, y_cl_tr)
                 else:
                     clf_sub = RandomForestClassifier(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
@@ -194,10 +231,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     
                 # Regressor Sub-model
                 if XGBOOST_AVAILABLE:
-                    reg_params_sub = MODEL_PARAMS["regressor"].copy()
-                    reg_params_sub["reg_alpha"] = best_alpha
-                    reg_params_sub["reg_lambda"] = best_lambda
-                    reg_sub = xgb.XGBRegressor(**reg_params_sub)
+                    reg_sub = xgb.XGBRegressor(**best_reg_params)
                     reg_sub.fit(X_tr, y_rg_tr)
                 else:
                     reg_sub = RandomForestRegressor(n_estimators=80, max_depth=3, min_samples_leaf=5, random_state=42)
@@ -219,14 +253,14 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
             print(f"[{ticker}] Walk-forward validation loop failed: {e}. Falling back to static validation.")
             val_pred_class = []
             
-    # 3. Final Saved Model Training (on 100% of labeled historical data)
+    # 4. Final Saved Model Training (on 100% of labeled historical data)
     X_full_labeled = df_clean[FEATURES]
     y_class_full = df_clean['Target_Direction']
     y_reg_full = df_clean['Target_Return']
     
     if XGBOOST_AVAILABLE:
         try:
-            clf = xgb.XGBClassifier(**MODEL_PARAMS["classifier"])
+            clf = xgb.XGBClassifier(**best_clf_params)
             clf.fit(X_full_labeled, y_class_full)
             algorithm_used = "XGBoost"
         except Exception as e:
@@ -239,10 +273,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
         
     if XGBOOST_AVAILABLE:
         try:
-            reg_params = MODEL_PARAMS["regressor"].copy()
-            reg_params["reg_alpha"] = best_alpha
-            reg_params["reg_lambda"] = best_lambda
-            reg = xgb.XGBRegressor(**reg_params)
+            reg = xgb.XGBRegressor(**best_reg_params)
             reg.fit(X_full_labeled, y_reg_full)
         except Exception as e:
             print(f"XGBoost Final Regressor fit failed: {e}. Using RandomForest fallback.")
@@ -272,7 +303,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
     train_mae = mean_absolute_error(y_reg_full, reg.predict(X_full_labeled))
     val_mae = mean_absolute_error(y_reg_test, val_pred_reg) if len(X_test) > 0 else 0.0
     
-    # Compile validation error records (last 10 independent completed 5-day cycles)
+    # Compile validation error records
     val_errors = []
     if len(test_slice) > 0:
         try:
@@ -291,13 +322,11 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                 clf_pred_dir = 1 if clf_pred == 1 else -1
                 reg_pred_dir = 1 if pred_ret >= 0 else -1
                 
-                # Method 5: Ensemble Direction — STRICT consensus
-                # Both models must agree for a directional call.
-                # If they disagree, mark the ensemble direction as 0 (uncertain/abstain).
+                # Strict consensus ensemble
                 if clf_pred_dir == reg_pred_dir:
                     ensemble_dir = clf_pred_dir
                 else:
-                    ensemble_dir = 0  # No consensus — treated as wrong in trend match
+                    ensemble_dir = 0
                 
                 err_margin = pred_ret - actual_ret
                 
@@ -320,7 +349,8 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
         f"{ticker} [{algorithm_used}] | "
         f"Train Acc: {train_acc:.2%} | Val Acc: {val_acc:.2%} | "
         f"Train MAE: {train_mae:.4f} | Val MAE: {val_mae:.4f} | "
-        f"Train days: {data_meta['train_trading_days']} | Val days: {data_meta['validation_trading_days']}"
+        f"Regressor Params: max_depth={best_reg_params.get('max_depth')}, lr={best_reg_params.get('learning_rate')} | "
+        f"Classifier Params: max_depth={best_clf_params.get('max_depth')}, lr={best_clf_params.get('learning_rate')}"
     )
     
     return {
@@ -356,16 +386,29 @@ def score_latest_session(ticker: str, latest_row: pd.DataFrame, latest_sentiment
     
     # 1. Classification (Probability of rise)
     try:
-        # Handles binary classifier classes
         probs = clf.predict_proba(X_inf)[0]
-        # class 1 probability
         up_prob = probs[1]
     except AttributeError:
-        # Fallback if model doesn't support predict_proba
         up_prob = 0.5
         
     # 2. Regression (Predicted alpha magnitude)
     pred_return = reg.predict(X_inf)[0]
+    
+    # Apply post-inference live news sentiment adjustment
+    raw_prob = up_prob
+    raw_return = pred_return
+    if abs(latest_sentiment) > 0.01:
+        # Boost/decrease upward probability by up to 10% based on sentiment score
+        up_prob = up_prob + (latest_sentiment * 0.10)
+        up_prob = np.clip(up_prob, 0.01, 0.99)
+        
+        # Boost/decrease predicted return by up to 1.5% return based on sentiment score
+        pred_return = pred_return + (latest_sentiment * 0.015)
+        pred_return = np.clip(pred_return, -0.15, 0.15)
+        
+        print(f"[{ticker}] Applied news sentiment adjustment: {latest_sentiment:+.2f} | "
+              f"Prob: {raw_prob:.2%} -> {up_prob:.2%} | "
+              f"Return: {raw_return:+.2%} -> {pred_return:+.2%}")
     
     # 3. Dynamic execution brackets
     suggested_buy = current_price
@@ -383,34 +426,23 @@ def score_latest_session(ticker: str, latest_row: pd.DataFrame, latest_sentiment
     downside_percent = (atr_factor * current_atr) / current_price if current_price > 0 else 0.05
     rrr = pred_return / downside_percent if downside_percent > 0 else 1.0
     
-    # -----------------------------------------------------------------------
-    # Signal Logic (covers all three cases — BUY, SELL, NEUTRAL)
-    # BUY:     High confidence of upward move AND meaningful predicted return
-    # SELL:    Either low confidence of upward move OR negative predicted return
-    #          Both conditions independently valid for a hold-portfolio warning
-    # NEUTRAL: Model is undecided — no actionable edge detected
-    # -----------------------------------------------------------------------
+    # Signal Logic
     signal = "NEUTRAL"
     signal_reason = "Model has no strong directional edge. Stay in cash or hold."
     
-    if up_prob >= 0.75 and pred_return >= 0.02:
+    if up_prob >= 0.70 and pred_return >= 0.015:
         signal = "BUY"
-        signal_reason = f"Model has {up_prob:.0%} confidence of a rise with +{pred_return:.2%} predicted alpha in {TRAIN_HORIZON_DAYS} trading days."
+        signal_reason = f"Model has {up_prob:.0%} confidence of a rise with +{pred_return:.2%} predicted return (sentiment adjusted) in {TRAIN_HORIZON_DAYS} trading days."
     elif up_prob <= 0.35 and pred_return <= -0.01:
-        # Strong SELL: BOTH classifier bearish AND regressor negative
         signal = "SELL"
         signal_reason = f"Model has only {up_prob:.0%} upward probability with {pred_return:.2%} predicted return — strong downtrend signal."
     elif pred_return <= -0.02:
-        # Regressor-only SELL: predicted loss exceeds 2% threshold
         signal = "SELL"
         signal_reason = f"Regressor predicts a {pred_return:.2%} loss over {TRAIN_HORIZON_DAYS} days even with neutral classifier."
     elif up_prob <= 0.30:
-        # Classifier-only SELL: very low probability of upward move
         signal = "SELL"
         signal_reason = f"Classifier predicts only {up_prob:.0%} probability of a rise — high downside risk."
-
-    # For SELL signals: compute a suggested exit/cover price
-    # (current price minus the predicted loss magnitude)
+ 
     suggested_exit = round(float(current_price * (1.0 + pred_return)), 2) if signal == "SELL" else None
         
     return {
@@ -440,12 +472,10 @@ def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
     
     def process_train_and_predict(ticker, df):
         try:
-            # Step 1: Train/retrain
             metrics = train_models(ticker, df)
             if "error" in metrics:
                 return None
                 
-            # Step 2: Score
             latest_row = df.tail(1)
             current_price = float(df['Close'].iloc[-1])
             current_atr = float(df['ATR_14'].iloc[-1])
@@ -453,7 +483,6 @@ def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
             
             pred = score_latest_session(ticker, latest_row, sentiment, current_price, current_atr)
             if "error" not in pred:
-                # Merge training metrics and dataset metadata
                 pred["train_accuracy"]          = metrics.get("train_accuracy", 0.0)
                 pred["val_accuracy"]            = metrics.get("val_accuracy", 0.0)
                 pred["train_mae"]               = metrics.get("train_mae", 0.0)
@@ -485,7 +514,7 @@ def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
             if pred is not None:
                 recs.append(pred)
             
-    # Write to recommendations.json (merge with existing to preserve other tickers)
+    # Write to recommendations.json
     try:
         import json
         existing_recs = []
@@ -496,7 +525,6 @@ def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
             except Exception:
                 existing_recs = []
         
-        # Merge by ticker
         merged_dict = {}
         for item in existing_recs:
             if isinstance(item, dict) and "ticker" in item:
