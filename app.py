@@ -629,6 +629,41 @@ def fetch_live_market_data(tickers):
 all_price_tickers = sorted(list(set(active_watchlist + list(predictions.keys()))))
 live_market = fetch_live_market_data(all_price_tickers)
 
+# ----------------- GLOBAL PRICE RANGE FILTER -----------------
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Global Price Range Filter")
+use_global_price_filter = st.sidebar.checkbox(
+    "Enable Global Price Filter", 
+    value=False, 
+    key="global_price_filter_enable",
+    help="When enabled, filters tickers in all sections to fall within the specified price range."
+)
+
+if use_global_price_filter:
+    # Compute maximum price in our live market data to make the slider bounds useful
+    all_live_prices = [d["live_price"] for d in live_market.values() if "live_price" in d]
+    max_detect = max(all_live_prices) if all_live_prices else 25000.0
+    # Add minor buffer
+    max_slider_limit = float(np.ceil(max_detect / 100.0) * 100.0) if max_detect > 0 else 25000.0
+    if max_slider_limit < 100.0:
+        max_slider_limit = 100.0
+        
+    global_min_p, global_max_p = st.sidebar.slider(
+        "Price Range (₹)",
+        min_value=0.0,
+        max_value=max_slider_limit,
+        value=(0.0, max_slider_limit),
+        step=50.0,
+        key="global_price_slider"
+    )
+    # numeric inputs
+    col_g1, col_g2 = st.sidebar.columns(2)
+    global_min_p = col_g1.number_input("Min Price (₹)", value=global_min_p, min_value=0.0, step=10.0, key="global_min_price_inp")
+    global_max_p = col_g2.number_input("Max Price (₹)", value=global_max_p, min_value=0.0, step=10.0, key="global_max_price_inp")
+else:
+    global_min_p = 0.0
+    global_max_p = float('inf')
+
 # ----------------- DASHBOARD BODY -----------------
 st.title("⚡ AI Technical Trading Assistant")
 st.markdown("##### Tabular Machine Learning Predictions & Live Portfolio Monitoring Net of Indian Taxes")
@@ -717,6 +752,14 @@ with p_add_col:
         st.rerun()
 
 with p_list_col:
+    # --- Price Range Filter for Portfolio ---
+    with st.expander("🔍 Filter Portfolio by Current Price Range", expanded=False):
+        p_min_default = global_min_p if use_global_price_filter else 0.0
+        p_max_default = global_max_p if use_global_price_filter else 100000.0
+        p_col1, p_col2 = st.columns(2)
+        p_min_p = p_col1.number_input("Min Price (₹)", value=p_min_default, min_value=0.0, key="port_min_price_filter")
+        p_max_p = p_col2.number_input("Max Price (₹)", value=p_max_default, min_value=0.0, key="port_max_price_filter")
+
     if not portfolio:
         st.info("No active holdings recorded. Add your stock transactions in the form to track net P&L and monitor thresholds in real-time.")
     else:
@@ -735,6 +778,10 @@ with p_list_col:
             curr_p = buy_p
             if t in live_market:
                 curr_p = live_market[t]["live_price"]
+                
+            # Filter by price range
+            if not (p_min_p <= curr_p <= p_max_p):
+                continue
                 
             # Get metrics
             metrics = calculate_portfolio_metrics(qty, buy_p, curr_p, broker)
@@ -787,69 +834,72 @@ with p_list_col:
                 "Alert Status": alert_badge
             })
             
-        df_portfolio = pd.DataFrame(rows)
-        
-        # Display aggregate indicators
-        tot_net_pnl = tot_curr_value_net - tot_buy_cost_net
-        tot_net_pnl_percent = (tot_net_pnl / tot_buy_cost_net) * 100 if tot_buy_cost_net > 0 else 0.0
-        
-        c_inv, c_val, c_pnl = st.columns(3)
-        with c_inv:
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <div class='metric-title'>Total Net Investment</div>
-                    <div class='metric-val'>₹{tot_buy_cost_net:,.2f}</div>
-                    <div class='metric-sub' style='color:#94A3B8;'>Including buy-side fees</div>
-                </div>
-            """, unsafe_allow_html=True)
-        with c_val:
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <div class='metric-title'>Current Value (Net)</div>
-                    <div class='metric-val'>₹{tot_curr_value_net:,.2f}</div>
-                    <div class='metric-sub' style='color:#94A3B8;'>Deducting projected sell-side fees</div>
-                </div>
-            """, unsafe_allow_html=True)
-        with c_pnl:
-            pnl_class = "negative" if tot_net_pnl < 0 else ""
-            pnl_sign = "+" if tot_net_pnl >= 0 else ""
-            st.markdown(f"""
-                <div class='metric-card'>
-                    <div class='metric-title'>Net Portfolio P&L</div>
-                    <div class='metric-val {pnl_class}'>{pnl_sign}₹{tot_net_pnl:,.2f}</div>
-                    <div class='metric-sub {pnl_class}'>{pnl_sign}{tot_net_pnl_percent:,.2f}%</div>
-                </div>
-            """, unsafe_allow_html=True)
+        if not rows:
+            st.info("No holdings match the selected price range.")
+        else:
+            df_portfolio = pd.DataFrame(rows)
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Group holdings rows by sector
-        rows_by_sector = {}
-        for r in rows:
-            t_symbol = r["Ticker"]
-            placed = False
-            for sector_name, sector_list in SECTORS.items():
-                if t_symbol in sector_list:
-                    rows_by_sector.setdefault(sector_name, []).append(r)
-                    placed = True
-                    break
-            if not placed:
-                rows_by_sector.setdefault("Custom Tickers", []).append(r)
+            # Display aggregate indicators
+            tot_net_pnl = tot_curr_value_net - tot_buy_cost_net
+            tot_net_pnl_percent = (tot_net_pnl / tot_buy_cost_net) * 100 if tot_buy_cost_net > 0 else 0.0
+            
+            c_inv, c_val, c_pnl = st.columns(3)
+            with c_inv:
+                st.markdown(f"""
+                    <div class='metric-card'>
+                        <div class='metric-title'>Total Net Investment</div>
+                        <div class='metric-val'>₹{tot_buy_cost_net:,.2f}</div>
+                        <div class='metric-sub' style='color:#94A3B8;'>Including buy-side fees</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c_val:
+                st.markdown(f"""
+                    <div class='metric-card'>
+                        <div class='metric-title'>Current Value (Net)</div>
+                        <div class='metric-val'>₹{tot_curr_value_net:,.2f}</div>
+                        <div class='metric-sub' style='color:#94A3B8;'>Deducting projected sell-side fees</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c_pnl:
+                pnl_class = "negative" if tot_net_pnl < 0 else ""
+                pnl_sign = "+" if tot_net_pnl >= 0 else ""
+                st.markdown(f"""
+                    <div class='metric-card'>
+                        <div class='metric-title'>Net Portfolio P&L</div>
+                        <div class='metric-val {pnl_class}'>{pnl_sign}₹{tot_net_pnl:,.2f}</div>
+                        <div class='metric-sub {pnl_class}'>{pnl_sign}{tot_net_pnl_percent:,.2f}%</div>
+                    </div>
+                """, unsafe_allow_html=True)
                 
-        # Display sector-wise holdings tables inside a single closed expander using a sector selectbox
-        with st.expander("📁 View Sector-wise Holdings Breakdown", expanded=False):
-            selected_sector = st.selectbox("Select Sector to View Holdings", options=list(rows_by_sector.keys()), key="portfolio_sector_select")
-            sector_rows = rows_by_sector[selected_sector]
+            st.markdown("<br>", unsafe_allow_html=True)
             
-            # Calculate sector subtotals
-            sect_val = sum(float(row["Est. Value (Net)"].replace("₹", "").replace(",", "")) for row in sector_rows)
-            sect_pnl = sum(float(row["Net P&L"].replace("₹", "").replace(",", "")) for row in sector_rows)
-            pnl_color = "#10B981" if sect_pnl >= 0 else "#EF4444"
-            pnl_sign = "+" if sect_pnl >= 0 else ""
-            
-            st.markdown(f"##### 📁 {selected_sector} — Net Value: ₹{sect_val:,.2f} | P&L: <span style='color:{pnl_color};font-weight:700;'>{pnl_sign}₹{sect_pnl:,.2f}</span>", unsafe_allow_html=True)
-            df_sect = pd.DataFrame(sector_rows)
-            st.markdown(df_sect.drop(columns=["ID"]).to_html(escape=False, index=False), unsafe_allow_html=True)
+            # Group holdings rows by sector
+            rows_by_sector = {}
+            for r in rows:
+                t_symbol = r["Ticker"]
+                placed = False
+                for sector_name, sector_list in SECTORS.items():
+                    if t_symbol in sector_list:
+                        rows_by_sector.setdefault(sector_name, []).append(r)
+                        placed = True
+                        break
+                if not placed:
+                    rows_by_sector.setdefault("Custom Tickers", []).append(r)
+                    
+            # Display sector-wise holdings tables inside a single closed expander using a sector selectbox
+            with st.expander("📁 View Sector-wise Holdings Breakdown", expanded=False):
+                selected_sector = st.selectbox("Select Sector to View Holdings", options=list(rows_by_sector.keys()), key="portfolio_sector_select")
+                sector_rows = rows_by_sector[selected_sector]
+                
+                # Calculate sector subtotals
+                sect_val = sum(float(row["Est. Value (Net)"].replace("₹", "").replace(",", "")) for row in sector_rows)
+                sect_pnl = sum(float(row["Net P&L"].replace("₹", "").replace(",", "")) for row in sector_rows)
+                pnl_color = "#10B981" if sect_pnl >= 0 else "#EF4444"
+                pnl_sign = "+" if sect_pnl >= 0 else ""
+                
+                st.markdown(f"##### 📁 {selected_sector} — Net Value: ₹{sect_val:,.2f} | P&L: <span style='color:{pnl_color};font-weight:700;'>{pnl_sign}₹{sect_pnl:,.2f}</span>", unsafe_allow_html=True)
+                df_sect = pd.DataFrame(sector_rows)
+                st.markdown(df_sect.drop(columns=["ID"]).to_html(escape=False, index=False), unsafe_allow_html=True)
         
         # Quick transaction deletion
         st.markdown("<br>", unsafe_allow_html=True)
@@ -869,12 +919,24 @@ st.markdown("<div class='section-header'><h3>🏆 Top 10 Buy Recommendations Mat
 if not predictions:
     st.info("No recommendation data found. Run a 'Full Market Scan' in the sidebar to generate recommendations.")
 else:
+    # --- Price Range Filter for Recommendations ---
+    with st.expander("🔍 Filter Recommendations by Price Range", expanded=False):
+        r_min_default = global_min_p if use_global_price_filter else 0.0
+        r_max_default = global_max_p if use_global_price_filter else 100000.0
+        r_col1, r_col2 = st.columns(2)
+        r_min_p = r_col1.number_input("Min Price (₹)", value=r_min_default, min_value=0.0, key="rec_min_price_filter")
+        r_max_p = r_col2.number_input("Max Price (₹)", value=r_max_default, min_value=0.0, key="rec_max_price_filter")
+
     # Compile all BUY/highly bullish recommendations across all loaded predictions
     bullish_recs = []
     for t, pred in predictions.items():
         sig = pred.get("signal", "NEUTRAL")
         curr_p = live_market.get(t, {}).get("live_price", pred.get("current_price", 0.0))
         if curr_p == 0.0:
+            continue
+            
+        # Filter by price range
+        if not (r_min_p <= curr_p <= r_max_p):
             continue
         
         pred_return = pred.get("predicted_return", 0.0)
@@ -922,7 +984,7 @@ else:
     top_10 = bullish_recs[:10]
     
     if not top_10:
-        st.info("No recommendations found. Please run a market scan to train models.")
+        st.info("No recommendations found matching the selected price range.")
     else:
         st.markdown("<small style='color: #64748B;'>The following are the top 10 ranked buy recommendations across all sectors based on classifier confidence, expected return, and validation truth (Val MAE).</small>", unsafe_allow_html=True)
         
@@ -955,6 +1017,14 @@ st.markdown("<div class='section-header'><h3>🧠 Neural Analyst — BUY / SELL 
 if not predictions:
     st.info("No recommendation summaries loaded. Run the model pipeline in the sidebar to generate data.")
 else:
+    # --- Price Range Filter for Neural Analyst ---
+    with st.expander("🔍 Filter Neural Analyst Signals by Price Range", expanded=False):
+        a_min_default = global_min_p if use_global_price_filter else 0.0
+        a_max_default = global_max_p if use_global_price_filter else 100000.0
+        a_col1, a_col2 = st.columns(2)
+        a_min_p = a_col1.number_input("Min Price (₹)", value=a_min_default, min_value=0.0, key="analyst_min_price_filter")
+        a_max_p = a_col2.number_input("Max Price (₹)", value=a_max_default, min_value=0.0, key="analyst_max_price_filter")
+
     # ── Model Training Metadata expander ──────────────────────────────────
     with st.expander("📐 Model Training & Validation Dataset Details (click to expand)", expanded=False):
         # Search filter text input for model metadata
@@ -964,6 +1034,12 @@ else:
         for t in active_watchlist:
             if meta_search_query and meta_search_query.upper() not in t.upper():
                 continue
+            
+            # Fetch live current price to check filter bounds
+            curr_p = live_market.get(t, {}).get("live_price", predictions.get(t, {}).get("current_price", 0.0))
+            if not (a_min_p <= curr_p <= a_max_p):
+                continue
+                
             if t in predictions:
                 p = predictions[t]
                 meta_rows.append({
@@ -1001,11 +1077,22 @@ else:
     def build_rec_rows(filter_signal=None):
         rows = []
         for t in active_watchlist:
+            # Resolve current price to filter
+            if t in live_market:
+                curr_p = live_market[t]["live_price"]
+            elif t in predictions:
+                curr_p = predictions[t].get("current_price", 0.0)
+            else:
+                curr_p = 0.0
+                
+            # Filter by price range
+            if not (a_min_p <= curr_p <= a_max_p):
+                continue
+
             if t not in predictions:
                 if filter_signal is not None:
                     continue
                 
-                curr_p     = live_market.get(t, {}).get("live_price", 0.0)
                 prev_p     = live_market.get(t, {}).get("prev_price", curr_p)
                 day_change = curr_p - prev_p
                 day_pct    = (day_change / prev_p * 100) if prev_p else 0.0
@@ -1218,12 +1305,23 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
     if scan_data:
         st.markdown(f"⏱️ **Last Full Market Scan**: `{scan_data['last_scan_time']}`")
         stocks = scan_data.get("stocks", [])
-        if not stocks:
-            st.info("No stocks with a daily gain of ≥ +10% were detected in the last scan.")
+        
+        # --- Price Range Filter for Breakout Scanner ---
+        with st.expander("🔍 Filter Breakouts by Price Range", expanded=False):
+            b_min_default = global_min_p if use_global_price_filter else 0.0
+            b_max_default = global_max_p if use_global_price_filter else 100000.0
+            b_col1, b_col2 = st.columns(2)
+            b_min_p = b_col1.number_input("Min Price (₹)", value=b_min_default, min_value=0.0, key="breakout_min_price_filter")
+            b_max_p = b_col2.number_input("Max Price (₹)", value=b_max_default, min_value=0.0, key="breakout_max_price_filter")
+            
+        filtered_stocks = [s for s in stocks if b_min_p <= s["Live Price"] <= b_max_p]
+        
+        if not filtered_stocks:
+            st.info("No breakout stocks match the selected price range.")
         else:
             # Build list of dicts for presentation
             table_rows = []
-            for s in stocks:
+            for s in filtered_stocks:
                 vol_formatted = f"{s['Volume']:,}" if s['Volume'] > 0 else "—"
                 table_rows.append({
                     "Ticker Symbol": f"<b>{s['Ticker']}</b>",
@@ -1241,7 +1339,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
             with col_add_sel:
                 ticker_to_add = st.selectbox(
                     "Select a Breakout Stock to Monitor",
-                    options=[s["Ticker"] for s in stocks],
+                    options=[s["Ticker"] for s in filtered_stocks],
                     key="breakout_watchlist_selectbox"
                 )
             with col_add_btn:
@@ -1336,323 +1434,357 @@ def load_chart_history(ticker):
 grouped_watchlist = group_tickers_by_sector(active_watchlist)
 
 with st.expander("📊 View Technical Analysis Charts", expanded=False):
+    # --- Price Range Filter for Technical Charts ---
+    with st.expander("🔍 Filter Chart Symbols by Price Range", expanded=False):
+        c_min_default = global_min_p if use_global_price_filter else 0.0
+        c_max_default = global_max_p if use_global_price_filter else 100000.0
+        c_col1, c_col2 = st.columns(2)
+        c_min_p = c_col1.number_input("Min Price (₹)", value=c_min_default, min_value=0.0, key="chart_min_price_filter")
+        c_max_p = c_col2.number_input("Max Price (₹)", value=c_max_default, min_value=0.0, key="chart_max_price_filter")
+
     chart_search_query = st.text_input("🔍 Search Ticker for Charting (filters dropdown below)", "", key="charts_search_filter_input")
-    filtered_chart_tickers = [t for t in all_price_tickers if chart_search_query.upper() in t]
+
+    # Filter tickers by price range and search query
+    filtered_chart_tickers = []
+    for t in all_price_tickers:
+        curr_p = live_market.get(t, {}).get("live_price", predictions.get(t, {}).get("current_price", 0.0))
+        if c_min_p <= curr_p <= c_max_p:
+            if not chart_search_query or chart_search_query.upper() in t.upper():
+                filtered_chart_tickers.append(t)
+
     if not filtered_chart_tickers:
-        filtered_chart_tickers = all_price_tickers
-        
-    chart_ticker = st.selectbox(
-        "Select Symbol for Charting", 
-        options=filtered_chart_tickers, 
-        index=filtered_chart_tickers.index("TATAPOWER.NS") if "TATAPOWER.NS" in filtered_chart_tickers else 0,
-        key="charts_global_select"
-    )
-    
-    df_chart = load_chart_history(chart_ticker)
-    if df_chart.empty:
-        st.error(f"Could not load chart history for {chart_ticker}.")
+        st.info("No tickers match the selected price range and search query.")
+        chart_ticker = None
     else:
-        # Build 3-row subplots
-        fig = make_subplots(
-            rows=3, cols=1, 
-            shared_xaxes=True, 
-            vertical_spacing=0.03, 
-            row_heights=[0.6, 0.2, 0.2]
+        chart_ticker = st.selectbox(
+            "Select Symbol for Charting", 
+            options=filtered_chart_tickers, 
+            index=filtered_chart_tickers.index("TATAPOWER.NS") if "TATAPOWER.NS" in filtered_chart_tickers else 0,
+            key="charts_global_select"
         )
-        
-        # Row 1: Candlesticks
-        fig.add_trace(
-            obj.Candlestick(
-                x=df_chart.index,
-                open=df_chart['Open'],
-                high=df_chart['High'],
-                low=df_chart['Low'],
-                close=df_chart['Close'],
-                name="Candlesticks"
-            ),
-            row=1, col=1
-        )
-        
-        # Overlay SMA lines
-        fig.add_trace(
-            obj.Scatter(x=df_chart.index, y=df_chart['SMA_50'], name="50-day SMA", line=dict(color="#10B981", width=1.5)),
-            row=1, col=1
-        )
-        fig.add_trace(
-            obj.Scatter(x=df_chart.index, y=df_chart['SMA_200'], name="200-day SMA", line=dict(color="#3B82F6", width=1.5)),
-            row=1, col=1
-        )
-        
-        # Row 2: RSI
-        fig.add_trace(
-            obj.Scatter(x=df_chart.index, y=df_chart['RSI_14'], name="RSI (14)", line=dict(color="#F59E0B", width=1.5)),
-            row=2, col=1
-        )
-        # Highlight lines for RSI overbought / oversold
-        fig.add_hline(y=70, line_dash="dash", line_color="#EF4444", line_width=1, row=2, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="#10B981", line_width=1, row=2, col=1)
-        
-        # Row 3: ATR
-        fig.add_trace(
-            obj.Scatter(x=df_chart.index, y=df_chart['ATR_14'], name="ATR (14)", line=dict(color="#EC4899", width=1.5)),
-            row=3, col=1
-        )
-        
-        fig.update_layout(
-            title=f"📊 6-Month Historical Technical Analysis Chart — {chart_ticker}",
-            template="plotly_dark",
-            height=500,
-            xaxis_rangeslider_visible=False,
-            margin=dict(t=50, b=10, l=10, r=10),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-        )
-        
-        st.plotly_chart(fig, width='stretch', key=f"plotly_hist_{chart_ticker}")
-    
-        # ── Future Projection Analysis Chart ──
-        if chart_ticker in predictions:
-            st.markdown("<br>", unsafe_allow_html=True)
-            pred = predictions[chart_ticker]
-            last_date = df_chart.index[-1]
-            last_close = float(df_chart['Close'].iloc[-1])
-            predicted_p = float(pred.get("predicted_price", last_close))
-            take_profit_p = float(pred.get("take_profit_price", last_close))
-            stop_loss_p = float(pred.get("stop_loss_price", last_close))
-            signal = pred.get("signal", "NEUTRAL")
-            
-            # Get recent context (last 15 trading days for visual context)
-            df_recent = df_chart.tail(15)
-            recent_dates = df_recent.index.tolist()
-            recent_closes = df_recent['Close'].tolist()
-            
-            # Generate next 5 trading days
-            future_dates = []
-            curr_d = pd.to_datetime(last_date)
-            while len(future_dates) < 5:
-                curr_d += pd.Timedelta(days=1)
-                if curr_d.weekday() < 5:  # Mon-Fri
-                    future_dates.append(curr_d)
-                    
-            # Projection lines
-            proj_dates = [pd.to_datetime(last_date)] + future_dates
-            proj_prices = np.linspace(last_close, predicted_p, len(proj_dates))
-            
-            # Select color based on signal
-            if signal == "BUY":
-                pred_color = "#10B981"  # Vibrant green
-            elif signal == "SELL":
-                pred_color = "#EF4444"  # Vibrant red
-            else:
-                pred_color = "#F59E0B"  # Vibrant amber/yellow
-                
-            fig_proj = obj.Figure()
-            
-            # 1. Plot historical context close price
-            fig_proj.add_trace(
-                obj.Scatter(
-                    x=recent_dates,
-                    y=recent_closes,
-                    name="Recent Close Price",
-                    line=dict(color="#64748B", width=2, dash="solid"),
-                    mode="lines+markers"
-                )
+
+    if chart_ticker:
+        df_chart = load_chart_history(chart_ticker)
+        if df_chart.empty:
+            st.error(f"Could not load chart history for {chart_ticker}.")
+        else:
+            # Build 3-row subplots
+            fig = make_subplots(
+                rows=3, cols=1, 
+                shared_xaxes=True, 
+                vertical_spacing=0.03, 
+                row_heights=[0.6, 0.2, 0.2]
             )
-            
-            # 2. Projected path
-            fig_proj.add_trace(
-                obj.Scatter(
-                    x=proj_dates,
-                    y=proj_prices,
-                    name=f"Expected Forecast ({signal})",
-                    line=dict(color=pred_color, width=3, dash="dash"),
-                    mode="lines+markers",
-                    marker=dict(size=8, symbol="circle")
-                )
+
+            # Row 1: Candlesticks
+            fig.add_trace(
+                obj.Candlestick(
+                    x=df_chart.index,
+                    open=df_chart['Open'],
+                    high=df_chart['High'],
+                    low=df_chart['Low'],
+                    close=df_chart['Close'],
+                    name="Candlesticks"
+                ),
+                row=1, col=1
             )
-            
-            # 3. Take-profit horizontal line
-            fig_proj.add_trace(
-                obj.Scatter(
-                    x=proj_dates,
-                    y=[take_profit_p] * len(proj_dates),
-                    name=f"Take-Profit Target (₹{take_profit_p:.2f})",
-                    line=dict(color="rgba(16, 185, 129, 0.8)", width=1.5, dash="dot"),
-                    mode="lines"
-                )
+
+            # Overlay SMA lines
+            fig.add_trace(
+                obj.Scatter(x=df_chart.index, y=df_chart['SMA_50'], name="50-day SMA", line=dict(color="#10B981", width=1.5)),
+                row=1, col=1
             )
-            
-            # 4. Stop-loss horizontal line
-            fig_proj.add_trace(
-                obj.Scatter(
-                    x=proj_dates,
-                    y=[stop_loss_p] * len(proj_dates),
-                    name=f"Stop-Loss Limit (₹{stop_loss_p:.2f})",
-                    line=dict(color="rgba(239, 68, 68, 0.8)", width=1.5, dash="dot"),
-                    mode="lines"
-                )
+            fig.add_trace(
+                obj.Scatter(x=df_chart.index, y=df_chart['SMA_200'], name="200-day SMA", line=dict(color="#3B82F6", width=1.5)),
+                row=1, col=1
             )
-            
-            fig_proj.update_layout(
-                title=f"🔮 5-Day Machine Learning Future Projection — {chart_ticker}",
+
+            # Row 2: RSI
+            fig.add_trace(
+                obj.Scatter(x=df_chart.index, y=df_chart['RSI_14'], name="RSI (14)", line=dict(color="#F59E0B", width=1.5)),
+                row=2, col=1
+            )
+            # Highlight lines for RSI overbought / oversold
+            fig.add_hline(y=70, line_dash="dash", line_color="#EF4444", line_width=1, row=2, col=1)
+            fig.add_hline(y=30, line_dash="dash", line_color="#10B981", line_width=1, row=2, col=1)
+
+            # Row 3: ATR
+            fig.add_trace(
+                obj.Scatter(x=df_chart.index, y=df_chart['ATR_14'], name="ATR (14)", line=dict(color="#EC4899", width=1.5)),
+                row=3, col=1
+            )
+
+            fig.update_layout(
+                title=f"📊 6-Month Historical Technical Analysis Chart — {chart_ticker}",
                 template="plotly_dark",
-                height=350,
-                xaxis_title="Timeline (Trading Sessions)",
-                yaxis_title="Stock Price (INR)",
-                margin=dict(t=50, b=40, l=10, r=10),
+                height=500,
+                xaxis_rangeslider_visible=False,
+                margin=dict(t=50, b=10, l=10, r=10),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-            
-            st.plotly_chart(fig_proj, width='stretch', key=f"plotly_proj_{chart_ticker}")
-            
-            # ── Historical Prediction Error Margin Analysis ──
-            val_errors_all = pred.get("validation_errors", [])
-            if val_errors_all:
+
+            st.plotly_chart(fig, width='stretch', key=f"plotly_hist_{chart_ticker}")
+
+            # ── Future Projection Analysis Chart ──
+            if chart_ticker in predictions:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.markdown(f"##### 📉 Prediction Error Margin Analysis — {chart_ticker}")
-                st.markdown("""
-                    This table tracks the historical predictions from the backtesting dataset, comparing the stock price on the prediction day against what was predicted and what actually occurred 5 trading days later.
-                """)
-                
-                col_inspect_count, _ = st.columns([2.0, 3.0])
-                with col_inspect_count:
-                    num_rows = st.selectbox(
-                        "🔍 Show Last N Predictions",
-                        options=[5, 10, 15, 20, 30, len(val_errors_all)],
-                        index=2 if len(val_errors_all) >= 15 else (1 if len(val_errors_all) >= 10 else 0),
-                        format_func=lambda x: "All Predictions" if x == len(val_errors_all) else f"Last {x} Predictions",
-                        key=f"val_inspect_count_{chart_ticker}"
+                pred = predictions[chart_ticker]
+                last_date = df_chart.index[-1]
+                last_close = float(df_chart['Close'].iloc[-1])
+                predicted_p = float(pred.get("predicted_price", last_close))
+                take_profit_p = float(pred.get("take_profit_price", last_close))
+                stop_loss_p = float(pred.get("stop_loss_price", last_close))
+                signal = pred.get("signal", "NEUTRAL")
+
+                # Get recent context (last 15 trading days for visual context)
+                df_recent = df_chart.tail(15)
+                recent_dates = df_recent.index.tolist()
+                recent_closes = df_recent['Close'].tolist()
+
+                # Generate next 5 trading days
+                future_dates = []
+                curr_d = pd.to_datetime(last_date)
+                while len(future_dates) < 5:
+                    curr_d += pd.Timedelta(days=1)
+                    if curr_d.weekday() < 5:  # Mon-Fri
+                        future_dates.append(curr_d)
+
+                # Projection lines
+                proj_dates = [pd.to_datetime(last_date)] + future_dates
+                proj_prices = np.linspace(last_close, predicted_p, len(proj_dates))
+
+                # Select color based on signal
+                if signal == "BUY":
+                    pred_color = "#10B981"  # Vibrant green
+                elif signal == "SELL":
+                    pred_color = "#EF4444"  # Vibrant red
+                else:
+                    pred_color = "#F59E0B"  # Vibrant amber/yellow
+
+                fig_proj = obj.Figure()
+
+                # 1. Plot historical context close price
+                fig_proj.add_trace(
+                    obj.Scatter(
+                        x=recent_dates,
+                        y=recent_closes,
+                        name="Recent Close Price",
+                        line=dict(color="#64748B", width=2, dash="solid"),
+                        mode="lines+markers"
                     )
-                
-                # Render history rows (most recent first)
-                recent_recs = val_errors_all[-num_rows:]
-                err_rows = []
-                for rec in reversed(recent_recs):
-                    actual_ret = rec["actual_return_pct"]
-                    pred_ret = rec["predicted_return_pct"]
-                    err_margin = rec["error_margin_pct"]
-                    
-                    act_color = "#10B981" if actual_ret >= 0 else "#EF4444"
-                    pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
-                    
-                    # Highlight error margin magnitude
-                    abs_err = abs(err_margin)
-                    if abs_err < 2.0:
-                        err_badge = f"<span class='badge-safe'>{err_margin:+.2f}%</span>"
-                    elif abs_err < 5.0:
-                        err_badge = f"<span class='badge-warning'>{err_margin:+.2f}%</span>"
-                    else:
-                        err_badge = f"<span class='badge-danger'>{err_margin:+.2f}%</span>"
-                        
-                    # Calculate predicted price 5d later in INR
-                    predicted_future_close = rec['actual_close'] * (1.0 + pred_ret / 100)
-                    
-                    err_rows.append({
-                        "Date Predicted": rec["date"],
-                        "Price at Prediction Date": f"₹{rec['actual_close']:.2f}",
-                        "Predicted Price (5d Later)": f"₹{predicted_future_close:.2f}",
-                        "Actual Price (5d Later)": f"₹{rec['actual_future_close']:.2f}",
-                        "Predicted Return": f"<span style='color:{pred_color};font-weight:600;'>{pred_ret:+.2f}%</span>",
-                        "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%</span>",
-                        "Error Margin (Diff)": err_badge
-                    })
-                
-                df_err = pd.DataFrame(err_rows)
-                st.markdown(df_err.to_html(escape=False, index=False), unsafe_allow_html=True)
+                )
+
+                # 2. Projected path
+                fig_proj.add_trace(
+                    obj.Scatter(
+                        x=proj_dates,
+                        y=proj_prices,
+                        name=f"Expected Forecast ({signal})",
+                        line=dict(color=pred_color, width=3, dash="dash"),
+                        mode="lines+markers",
+                        marker=dict(size=8, symbol="circle")
+                    )
+                )
+
+                # 3. Take-profit horizontal line
+                fig_proj.add_trace(
+                    obj.Scatter(
+                        x=proj_dates,
+                        y=[take_profit_p] * len(proj_dates),
+                        name=f"Take-Profit Target (₹{take_profit_p:.2f})",
+                        line=dict(color="rgba(16, 185, 129, 0.8)", width=1.5, dash="dot"),
+                        mode="lines"
+                    )
+                )
+
+                # 4. Stop-loss horizontal line
+                fig_proj.add_trace(
+                    obj.Scatter(
+                        x=proj_dates,
+                        y=[stop_loss_p] * len(proj_dates),
+                        name=f"Stop-Loss Limit (₹{stop_loss_p:.2f})",
+                        line=dict(color="rgba(239, 68, 68, 0.8)", width=1.5, dash="dot"),
+                        mode="lines"
+                    )
+                )
+
+                fig_proj.update_layout(
+                    title=f"🔮 5-Day Machine Learning Future Projection — {chart_ticker}",
+                    template="plotly_dark",
+                    height=350,
+                    xaxis_title="Timeline (Trading Sessions)",
+                    yaxis_title="Stock Price (INR)",
+                    margin=dict(t=50, b=40, l=10, r=10),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                )
+
+                st.plotly_chart(fig_proj, width='stretch', key=f"plotly_proj_{chart_ticker}")
+
+                # ── Historical Prediction Error Margin Analysis ──
+                val_errors_all = pred.get("validation_errors", [])
+                if val_errors_all:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(f"##### 📉 Prediction Error Margin Analysis — {chart_ticker}")
+                    st.markdown("""
+                        This table tracks the historical predictions from the backtesting dataset, comparing the stock price on the prediction day against what was predicted and what actually occurred 5 trading days later.
+                    """)
+
+                    col_inspect_count, _ = st.columns([2.0, 3.0])
+                    with col_inspect_count:
+                        num_rows = st.selectbox(
+                            "🔍 Show Last N Predictions",
+                            options=[5, 10, 15, 20, 30, len(val_errors_all)],
+                            index=2 if len(val_errors_all) >= 15 else (1 if len(val_errors_all) >= 10 else 0),
+                            format_func=lambda x: "All Predictions" if x == len(val_errors_all) else f"Last {x} Predictions",
+                            key=f"val_inspect_count_{chart_ticker}"
+                        )
+
+                    # Render history rows (most recent first)
+                    recent_recs = val_errors_all[-num_rows:]
+                    err_rows = []
+                    for rec in reversed(recent_recs):
+                        actual_ret = rec["actual_return_pct"]
+                        pred_ret = rec["predicted_return_pct"]
+                        err_margin = rec["error_margin_pct"]
+
+                        act_color = "#10B981" if actual_ret >= 0 else "#EF4444"
+                        pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
+
+                        # Highlight error margin magnitude
+                        abs_err = abs(err_margin)
+                        if abs_err < 2.0:
+                            err_badge = f"<span class='badge-safe'>{err_margin:+.2f}%</span>"
+                        elif abs_err < 5.0:
+                            err_badge = f"<span class='badge-warning'>{err_margin:+.2f}%</span>"
+                        else:
+                            err_badge = f"<span class='badge-danger'>{err_margin:+.2f}%</span>"
+
+                        # Calculate predicted price 5d later in INR
+                        predicted_future_close = rec['actual_close'] * (1.0 + pred_ret / 100)
+
+                        err_rows.append({
+                            "Date Predicted": rec["date"],
+                            "Price at Prediction Date": f"₹{rec['actual_close']:.2f}",
+                            "Predicted Price (5d Later)": f"₹{predicted_future_close:.2f}",
+                            "Actual Price (5d Later)": f"₹{rec['actual_future_close']:.2f}",
+                            "Predicted Return": f"<span style='color:{pred_color};font-weight:600;'>{pred_ret:+.2f}%</span>",
+                            "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%</span>",
+                            "Error Margin (Diff)": err_badge
+                        })
+
+                    df_err = pd.DataFrame(err_rows)
+                    st.markdown(df_err.to_html(escape=False, index=False), unsafe_allow_html=True)
+                else:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.info("📉 No prediction error history available. Retrain the model pipeline to compile backtesting error margins.")
             else:
                 st.markdown("<br>", unsafe_allow_html=True)
-                st.info("📉 No prediction error history available. Retrain the model pipeline to compile backtesting error margins.")
-        else:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.info(f"🔮 Future prediction data is not available for {chart_ticker}. Run the model training pipeline to generate projections.")
+                st.info(f"🔮 Future prediction data is not available for {chart_ticker}. Run the model training pipeline to generate projections.")
 
 # ----------------- SENTIMENT & PUBLIC INDICES SECTION -----------------
 st.markdown("<div class='section-header'><h3>📰 Live Financial Sentiment Newsboard</h3></div>", unsafe_allow_html=True)
 
 with st.expander("📰 View Sentiment & Newsboard", expanded=False):
-    # Search filter text input for News selectbox
+    # --- Price Range Filter for Newsboard ---
+    with st.expander("🔍 Filter News Symbols by Price Range", expanded=False):
+        n_min_default = global_min_p if use_global_price_filter else 0.0
+        n_max_default = global_max_p if use_global_price_filter else 100000.0
+        n_col1, n_col2 = st.columns(2)
+        n_min_p = n_col1.number_input("Min Price (₹)", value=n_min_default, min_value=0.0, key="news_min_price_filter")
+        n_max_p = n_col2.number_input("Max Price (₹)", value=n_max_default, min_value=0.0, key="news_max_price_filter")
+
     news_search_query = st.text_input("🔍 Search Ticker for News & Sentiment (filters dropdown below)", "", key="news_search_filter_input")
-    filtered_news_tickers = [t for t in all_price_tickers if news_search_query.upper() in t]
+
+    # Filter tickers by price range and search query
+    filtered_news_tickers = []
+    for t in all_price_tickers:
+        curr_p = live_market.get(t, {}).get("live_price", predictions.get(t, {}).get("current_price", 0.0))
+        if n_min_p <= curr_p <= n_max_p:
+            if not news_search_query or news_search_query.upper() in t.upper():
+                filtered_news_tickers.append(t)
+
     if not filtered_news_tickers:
-        filtered_news_tickers = all_price_tickers
-        
-    news_ticker = st.selectbox(
-        "Select Ticker Symbol for News & Sentiment", 
-        options=filtered_news_tickers, 
-        index=filtered_news_tickers.index("TATAPOWER.NS") if "TATAPOWER.NS" in filtered_news_tickers else 0,
-        key="news_global_select"
-    )
-    
-    # Resolve the selected ticker's industry sector
-    news_industry = "Other"
-    for ind_name, ind_tickers in SECTORS.items():
-        if news_ticker in ind_tickers:
-            news_industry = ind_name
-            break
-            
-    industry_tickers = SECTORS.get(news_industry, [news_ticker])
-    
-    s_select_col, s_board_col = st.columns([1.5, 3.5])
-    
-    with s_select_col:
-        st.markdown(f"##### Peer Group: {news_industry}")
-        # Limit peer group displays to avoid overflow
-        peer_display = sorted(list(set(industry_tickers)))[:8]
-        for t in peer_display:
-            sentiment_score = 0.0
-            if t in predictions:
-                sentiment_score = predictions[t].get("sentiment_score", 0.0)
-            else:
-                sentiment_score = fetch_live_sentiment(t)
-                
-            color = "#10B981" if sentiment_score > 0.1 else ("#EF4444" if sentiment_score < -0.1 else "#94A3B8")
-            st.markdown(f"""
-                <div style='background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 10px;'>
-                    <div style='display: flex; justify-content: space-between; align-items: center;'>
-                        <span style='font-size: 0.95rem; font-weight: 600; color: #E2E8F0;'>{t}</span>
-                        <span style='font-size: 1.3rem; font-weight: 800; color: {color};'>{sentiment_score:+.2f}</span>
-                    </div>
-                    <div style='font-size: 0.75rem; color: #64748B; margin-top: 4px;'>Yahoo Finance news score</div>
-                </div>
-            """, unsafe_allow_html=True)
-            
-    with s_board_col:
-        
-        st.markdown(f"##### News Headlines for {news_ticker}")
-        
-        # Retrieve news using yfinance directly (live) to display
-        try:
-            yf_tick = yf.Ticker(news_ticker)
-            news_articles = yf_tick.news
-            if news_articles:
-                for article in news_articles[:5]:
-                    content = article.get("content", {})
-                    title = content.get("title", "")
-                    summary = content.get("summary", "")
-                    pub_date = content.get("pubDate", "")
-                    link = content.get("canonicalUrl", content.get("clickThroughUrl", ""))
-                    
-                    # Analyze sentiment
-                    score = score_text_sentiment(f"{title} {summary}")
-                    badge_html = "<span class='badge-warning'>NEUTRAL</span>"
-                    if score > 0.1:
-                        badge_html = f"<span class='badge-safe'>POS (+{score:.2f})</span>"
-                    elif score < -0.1:
-                        badge_html = f"<span class='badge-danger'>NEG ({score:.2f})</span>"
-                        
-                    st.markdown(f"""
-                        <div style='background: rgba(30, 41, 59, 0.25); border-left: 4px solid #10B981; border-radius: 4px; padding: 12px; margin-bottom: 12px;'>
-                            <div style='display: flex; justify-content: space-between; margin-bottom: 6px;'>
-                                <span style='font-size: 0.8rem; color: #64748B;'>{pub_date}</span>
-                                {badge_html}
-                            </div>
-                            <h6 style='margin: 0; color: #F8FAFC;'><a href='{link}' target='_blank' style='color:#3B82F6; text-decoration:none;'>{title}</a></h6>
-                            <p style='font-size: 0.85rem; color: #94A3B8; margin-top: 6px; margin-bottom: 0;'>{summary[:200]}...</p>
+        st.info("No tickers match the selected price range and search query.")
+        news_ticker = None
+    else:
+        news_ticker = st.selectbox(
+            "Select Ticker Symbol for News & Sentiment", 
+            options=filtered_news_tickers, 
+            index=filtered_news_tickers.index("TATAPOWER.NS") if "TATAPOWER.NS" in filtered_news_tickers else 0,
+            key="news_global_select"
+        )
+
+    if filtered_news_tickers and news_ticker:
+        news_industry = "Other"
+        for ind_name, ind_tickers in SECTORS.items():
+            if news_ticker in ind_tickers:
+                news_industry = ind_name
+                break
+
+        industry_tickers = SECTORS.get(news_industry, [news_ticker])
+
+        s_select_col, s_board_col = st.columns([1.5, 3.5])
+
+        with s_select_col:
+            st.markdown(f"##### Peer Group: {news_industry}")
+            # Limit peer group displays to avoid overflow
+            peer_display = sorted(list(set(industry_tickers)))[:8]
+            for t in peer_display:
+                sentiment_score = 0.0
+                if t in predictions:
+                    sentiment_score = predictions[t].get("sentiment_score", 0.0)
+                else:
+                    sentiment_score = fetch_live_sentiment(t)
+
+                color = "#10B981" if sentiment_score > 0.1 else ("#EF4444" if sentiment_score < -0.1 else "#94A3B8")
+                st.markdown(f"""
+                    <div style='background: rgba(30, 41, 59, 0.45); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 8px; padding: 12px; margin-bottom: 10px;'>
+                        <div style='display: flex; justify-content: space-between; align-items: center;'>
+                            <span style='font-size: 0.95rem; font-weight: 600; color: #E2E8F0;'>{t}</span>
+                            <span style='font-size: 1.3rem; font-weight: 800; color: {color};'>{sentiment_score:+.2f}</span>
                         </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info(f"No recent news articles found for {news_ticker}.")
-        except Exception as e:
-            st.error(f"Error fetching news for {news_ticker}: {e}")
+                        <div style='font-size: 0.75rem; color: #64748B; margin-top: 4px;'>Yahoo Finance news score</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+        with s_board_col:
+
+            st.markdown(f"##### News Headlines for {news_ticker}")
+
+            # Retrieve news using yfinance directly (live) to display
+            try:
+                yf_tick = yf.Ticker(news_ticker)
+                news_articles = yf_tick.news
+                if news_articles:
+                    for article in news_articles[:5]:
+                        content = article.get("content", {})
+                        title = content.get("title", "")
+                        summary = content.get("summary", "")
+                        pub_date = content.get("pubDate", "")
+                        link = content.get("canonicalUrl", content.get("clickThroughUrl", ""))
+
+                        # Analyze sentiment
+                        score = score_text_sentiment(f"{title} {summary}")
+                        badge_html = "<span class='badge-warning'>NEUTRAL</span>"
+                        if score > 0.1:
+                            badge_html = f"<span class='badge-safe'>POS (+{score:.2f})</span>"
+                        elif score < -0.1:
+                            badge_html = f"<span class='badge-danger'>NEG ({score:.2f})</span>"
+
+                        st.markdown(f"""
+                            <div style='background: rgba(30, 41, 59, 0.25); border-left: 4px solid #10B981; border-radius: 4px; padding: 12px; margin-bottom: 12px;'>
+                                <div style='display: flex; justify-content: space-between; margin-bottom: 6px;'>
+                                    <span style='font-size: 0.8rem; color: #64748B;'>{pub_date}</span>
+                                    {badge_html}
+                                </div>
+                                <h6 style='margin: 0; color: #F8FAFC;'><a href='{link}' target='_blank' style='color:#3B82F6; text-decoration:none;'>{title}</a></h6>
+                                <p style='font-size: 0.85rem; color: #94A3B8; margin-top: 6px; margin-bottom: 0;'>{summary[:200]}...</p>
+                            </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info(f"No recent news articles found for {news_ticker}.")
+            except Exception as e:
+                st.error(f"Error fetching news for {news_ticker}: {e}")
 
 # ----------------- SIDEBAR AUTO-CLOSE ON OUTSIDE CLICK -----------------
 st.iframe("""
