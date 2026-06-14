@@ -1642,6 +1642,7 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                     # Render history rows (most recent first)
                     recent_recs = val_errors_all[-num_rows:]
                     err_rows = []
+                    total_trend_matches = 0
                     for rec in reversed(recent_recs):
                         actual_ret = rec["actual_return_pct"]
                         pred_ret = rec["predicted_return_pct"]
@@ -1649,6 +1650,15 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
 
                         act_color = "#10B981" if actual_ret >= 0 else "#EF4444"
                         pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
+
+                        # Trend Match Logic
+                        pred_dir = 1 if pred_ret >= 0 else -1
+                        act_dir = 1 if actual_ret >= 0 else -1
+                        is_trend_match = "+1" if pred_dir == act_dir else "-1"
+                        trend_color = "#10B981" if is_trend_match == "+1" else "#EF4444"
+                        
+                        if is_trend_match == "+1":
+                            total_trend_matches += 1
 
                         # Highlight error margin magnitude
                         abs_err = abs(err_margin)
@@ -1669,10 +1679,12 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                             "Actual Price (5d Later)": f"₹{rec['actual_future_close']:.2f}",
                             "Predicted Return": f"<span style='color:{pred_color};font-weight:600;'>{pred_ret:+.2f}%</span>",
                             "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%</span>",
-                            "Error Margin (Diff)": err_badge
+                            "Error Margin (Diff)": err_badge,
+                            "Trend Match": f"<span style='color:{trend_color};font-weight:bold;font-size:1.1em;'>{is_trend_match}</span>"
                         })
 
                     df_err = pd.DataFrame(err_rows)
+                    st.markdown(f"**Total Trend Matches in Selection:** <span style='color:#10B981;font-weight:bold;font-size:1.1em;'>{total_trend_matches} / {len(recent_recs)}</span>", unsafe_allow_html=True)
                     st.markdown(df_err.to_html(escape=False, index=False), unsafe_allow_html=True)
                 else:
                     st.markdown("<br>", unsafe_allow_html=True)
