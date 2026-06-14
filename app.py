@@ -1653,10 +1653,12 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                     with col_strategy:
                         strategy = st.selectbox(
                             "🎯 Trend Prediction Strategy",
-                            options=["Ensemble (Classifier + Regressor)", "Classifier Only", "Regressor Sign (Baseline)"],
+                            options=["Classifier Only", "Ensemble (Both Must Agree)", "Regressor Sign (Baseline)"],
                             index=0,
                             key=f"val_strategy_{chart_ticker}",
-                            help="Choose which model outputs determine the predicted market trend direction."
+                            help="**Classifier Only**: Uses the XGBoost binary classifier's direction prediction. "
+                                 "**Ensemble**: Only counts as correct when BOTH classifier and regressor agree on direction (strictest). "
+                                 "**Regressor Sign**: Uses the sign of the predicted return % (baseline)."
                         )
 
                     # Render history rows (most recent first)
@@ -1671,20 +1673,56 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         act_color = "#10B981" if actual_ret >= 0 else "#EF4444"
                         pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
 
-                        # Trend Match Logic
+                        # Actual direction
                         act_dir = 1 if actual_ret >= 0 else -1
-                        if strategy == "Classifier Only":
-                            pred_dir = rec.get("clf_predicted_direction", 1 if pred_ret >= 0 else -1)
-                        elif strategy == "Ensemble (Classifier + Regressor)":
-                            pred_dir = rec.get("ensemble_predicted_direction", 1 if pred_ret >= 0 else -1)
-                        else:  # Regressor Sign (Baseline)
-                            pred_dir = 1 if pred_ret >= 0 else -1
 
-                        is_trend_match = "+1" if pred_dir == act_dir else "-1"
+                        # Compute direction based on selected strategy
+                        clf_dir = rec.get("clf_predicted_direction")
+                        clf_prob = rec.get("clf_probability")
+                        reg_dir = 1 if pred_ret >= 0 else -1
+
+                        if strategy == "Classifier Only":
+                            if clf_dir is not None:
+                                pred_dir = clf_dir
+                            else:
+                                pred_dir = reg_dir  # fallback for old data
+                        elif strategy == "Ensemble (Both Must Agree)":
+                            ens_dir = rec.get("ensemble_predicted_direction")
+                            if ens_dir is not None:
+                                pred_dir = ens_dir  # 0 = no consensus
+                            else:
+                                # Compute on-the-fly for old data without ensemble field
+                                if clf_dir is not None and clf_dir == reg_dir:
+                                    pred_dir = clf_dir
+                                elif clf_dir is not None:
+                                    pred_dir = 0  # disagree
+                                else:
+                                    pred_dir = reg_dir
+                        else:  # Regressor Sign (Baseline)
+                            pred_dir = reg_dir
+
+                        # Trend match: ensemble=0 (uncertain) never matches
+                        if pred_dir == 0:
+                            is_trend_match = "-1"
+                        else:
+                            is_trend_match = "+1" if pred_dir == act_dir else "-1"
+
                         trend_color = "#10B981" if is_trend_match == "+1" else "#EF4444"
                         
                         if is_trend_match == "+1":
                             total_trend_matches += 1
+
+                        # Confidence badge
+                        if clf_prob is not None:
+                            conf_pct = clf_prob * 100 if clf_prob >= 0.5 else (1 - clf_prob) * 100
+                            if conf_pct >= 70:
+                                conf_badge = f"<span style='color:#10B981;font-weight:600;'>{conf_pct:.0f}%</span>"
+                            elif conf_pct >= 55:
+                                conf_badge = f"<span style='color:#F59E0B;font-weight:600;'>{conf_pct:.0f}%</span>"
+                            else:
+                                conf_badge = f"<span style='color:#EF4444;font-weight:600;'>{conf_pct:.0f}%</span>"
+                        else:
+                            conf_badge = "<span style='color:#64748B;'>N/A</span>"
 
                         # Highlight error margin magnitude
                         abs_err = abs(err_margin)
@@ -1706,6 +1744,7 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                             "Predicted Return": f"<span style='color:{pred_color};font-weight:600;'>{pred_ret:+.2f}%</span>",
                             "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%</span>",
                             "Error Margin (Diff)": err_badge,
+                            "Confidence": conf_badge,
                             "Trend Match": f"<span style='color:{trend_color};font-weight:bold;font-size:1.1em;'>{is_trend_match}</span>"
                         })
 

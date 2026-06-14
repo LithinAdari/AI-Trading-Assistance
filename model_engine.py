@@ -291,16 +291,13 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                 clf_pred_dir = 1 if clf_pred == 1 else -1
                 reg_pred_dir = 1 if pred_ret >= 0 else -1
                 
-                # Method 5: Ensemble Direction
+                # Method 5: Ensemble Direction — STRICT consensus
+                # Both models must agree for a directional call.
+                # If they disagree, mark the ensemble direction as 0 (uncertain/abstain).
                 if clf_pred_dir == reg_pred_dir:
                     ensemble_dir = clf_pred_dir
                 else:
-                    if clf_prob >= 0.6:
-                        ensemble_dir = 1
-                    elif clf_prob <= 0.4:
-                        ensemble_dir = -1
-                    else:
-                        ensemble_dir = clf_pred_dir
+                    ensemble_dir = 0  # No consensus — treated as wrong in trend match
                 
                 err_margin = pred_ret - actual_ret
                 
@@ -312,6 +309,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     "predicted_return_pct": round(pred_ret * 100, 2),
                     "error_margin_pct": round(err_margin * 100, 2),
                     "clf_predicted_direction": clf_pred_dir,
+                    "clf_probability": round(clf_prob, 4),
                     "ensemble_predicted_direction": ensemble_dir
                 })
             val_errors = raw_records
