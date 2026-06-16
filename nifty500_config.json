@@ -144,10 +144,6 @@
         "DMART.NS",
         "DOMS.NS",
         "DRREDDY.NS",
-        "DUMMYVEDL1.NS",
-        "DUMMYVEDL2.NS",
-        "DUMMYVEDL3.NS",
-        "DUMMYVEDL4.NS",
         "ECLERX.NS",
         "EICHERMOT.NS",
         "EIDPARRY.NS",
@@ -485,10 +481,14 @@
         "URBANCO.NS",
         "USHAMART.NS",
         "UTIAMC.NS",
+        "VAML.NS",
         "VBL.NS",
         "VEDL.NS",
+        "VEDPOWER.NS",
         "VIJAYA.NS",
+        "VISL.NS",
         "VMM.NS",
+        "VOGL.NS",
         "VOLTAS.NS",
         "VTL.NS",
         "WAAREEENER.NS",
@@ -698,7 +698,6 @@
             "ADANIGREEN.NS",
             "ADANIPOWER.NS",
             "CESC.NS",
-            "DUMMYVEDL2.NS",
             "JSWENERGY.NS",
             "JPPOWER.NS",
             "NHPC.NS",
@@ -710,7 +709,8 @@
             "RPOWER.NS",
             "SJVN.NS",
             "TATAPOWER.NS",
-            "TORNTPOWER.NS"
+            "TORNTPOWER.NS",
+            "VEDPOWER.NS"
         ],
         "Fast Moving Consumer Goods": [
             "AWL.NS",
@@ -823,8 +823,6 @@
         ],
         "Metals & Mining": [
             "ADANIENT.NS",
-            "DUMMYVEDL1.NS",
-            "DUMMYVEDL4.NS",
             "GRAVITA.NS",
             "GMDCLTD.NS",
             "HINDALCO.NS",
@@ -841,6 +839,8 @@
             "SARDAEN.NS",
             "SAIL.NS",
             "TATASTEEL.NS",
+            "VAML.NS",
+            "VISL.NS",
             "VEDL.NS"
         ],
         "Services": [
@@ -867,7 +867,6 @@
             "CASTROLIND.NS",
             "CHENNPETRO.NS",
             "COALINDIA.NS",
-            "DUMMYVEDL3.NS",
             "GAIL.NS",
             "HINDPETRO.NS",
             "IOC.NS",
@@ -877,7 +876,8 @@
             "ONGC.NS",
             "OIL.NS",
             "PETRONET.NS",
-            "RELIANCE.NS"
+            "RELIANCE.NS",
+            "VOGL.NS"
         ],
         "Consumer Services": [
             "ABFRL.NS",
