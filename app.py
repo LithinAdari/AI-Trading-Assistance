@@ -1220,17 +1220,37 @@ else:
             # Ticker search query
             ticker_q = st.text_input("🔍 Search Ticker Symbol (filters table rows below)", "", key=f"signals_ticker_search_{signal_type}")
             
-            # Filter rows by ticker
-            filtered_rows = rows
-            if ticker_q:
-                filtered_rows = []
-                for r in rows:
+            # Price range filters inside the section
+            s_min_default = global_min_p if use_global_price_filter else 0.0
+            s_max_default = global_max_p if use_global_price_filter else 100000.0
+            
+            sc_col1, sc_col2 = st.columns(2)
+            s_min_p = sc_col1.number_input("Min Price (₹)", value=s_min_default, min_value=0.0, key=f"sectorwise_min_price_{signal_type}")
+            s_max_p = sc_col2.number_input("Max Price (₹)", value=s_max_default, min_value=0.0, key=f"sectorwise_max_price_{signal_type}")
+            
+            # Filter rows by ticker and price range
+            filtered_rows = []
+            for r in rows:
+                price_str = r.get("Live Price", "—").replace("₹", "").strip()
+                try:
+                    price_val = float(price_str)
+                except ValueError:
+                    price_val = 0.0
+                
+                # Check price range
+                if not (s_min_p <= price_val <= s_max_p):
+                    continue
+                
+                # Check ticker search query
+                if ticker_q:
                     t_clean = r["Ticker"].replace("<b>", "").replace("</b>", "").strip().upper()
                     if ticker_q.upper() in t_clean:
                         filtered_rows.append(r)
+                else:
+                    filtered_rows.append(r)
             
             if not filtered_rows:
-                st.info("No tickers match your search query.")
+                st.info("No tickers match your search query or price filters.")
                 return
                 
             # Group rows by sector
@@ -1293,17 +1313,66 @@ else:
 # ----------------- MARKET-WIDE BREAKOUT SCANNER SECTION -----------------
 st.markdown("<div class='section-header'><h3>⚡ Market-Wide Daily Breakout Scanner</h3></div>", unsafe_allow_html=True)
 
-with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=False):
+# Main action row for live data
+col_status, col_action_btn = st.columns([2, 1])
+
+scan_data = load_scan_results()
+last_scan_time_str = scan_data['last_scan_time'] if scan_data else "No Scan History Found"
+
+col_status.markdown(f"""
+<div style='padding: 12px; background-color: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px solid #334155;'>
+    ⏱️ <b>Last Full Market Scan:</b> <code>{last_scan_time_str}</code><br/>
+    <span style='font-size: 0.85em; color: #94A3B8;'>Click 'Get Live Data' to fetch the latest current day breakout listings.</span>
+</div>
+""", unsafe_allow_html=True)
+
+with col_action_btn:
+    st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
+    get_live_btn = st.button("⚡ Get Live Data (Current Day)", key="get_live_current_day_btn", help="Triggers a full live scan of all 2,100+ stocks for the current day. Takes ~45s.")
+
+if get_live_btn:
+    progress_bar = st.progress(0.0)
+    status_text = st.empty()
+    
+    with st.spinner("Scanning all NSE listed stocks for current day live breakouts..."):
+        cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=BASE_DIR
+        )
+        
+        for line in process.stdout:
+            line_str = line.strip()
+            if "Scanning chunk" in line_str:
+                status_text.text(line_str)
+                try:
+                    if "[" in line_str and "]" in line_str:
+                        parts = line_str.split("]")[0].replace("[", "").split("/")
+                        curr_chunk = int(parts[0])
+                        tot_chunks = int(parts[1])
+                        progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                except:
+                    pass
+            elif "Scan finished!" in line_str:
+                status_text.text(line_str)
+                progress_bar.progress(1.0)
+        
+        process.wait()
+        
+    st.success("Live breakout data for the current day retrieved and saved!")
+    st.rerun()
+
+with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=True):
     st.markdown("""
         This tool scans the entire National Stock Exchange (NSE) of India (over 2,100+ listed symbols) for stocks trading with 
         a day change of **+10% or more**. Daily breakout results can be permanently saved to your watchlist database.
     """)
     
-    # Load cached breakout scan results
-    scan_data = load_scan_results()
-    
     if scan_data:
-        st.markdown(f"⏱️ **Last Full Market Scan**: `{scan_data['last_scan_time']}`")
         stocks = scan_data.get("stocks", [])
         
         # --- Price Range Filter for Breakout Scanner ---
