@@ -28,9 +28,13 @@ def main():
     
     # 1. Check if we should only run the breakout scan
     if args.scan_breakouts:
-        print("--- Initiating Full Market Breakout Scan (+10% Changers) ---")
+        print("--- Initiating Breakout Scan (+10% Changers) ---")
         try:
-            results = run_breakout_scan(progress_callback=lambda curr, tot, msg: print(f"[{curr}/{tot}] {msg}"))
+            target_symbols = None
+            if args.tickers:
+                target_symbols = [t.strip() for t in args.tickers.split(",") if t.strip()]
+                print(f"Targeting custom list of {len(target_symbols)} tickers.")
+            results = run_breakout_scan(progress_callback=lambda curr, tot, msg: print(f"[{curr}/{tot}] {msg}"), symbols_list=target_symbols)
             save_scan_results(results)
             print("--- Breakout Scan Completed Successfully ---")
             sys.exit(0)

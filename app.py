@@ -1369,42 +1369,82 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
         
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Manual scan trigger
-    if st.button("🔍 Run New Live Market Scan (2,100+ Stocks)", key="run_live_breakout_scan_btn"):
-        progress_bar = st.progress(0.0)
-        status_text = st.empty()
-        
-        with st.spinner("Scanning all NSE listed stocks in batch..."):
-            cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                cwd=BASE_DIR
-            )
+    # Manual scan triggers
+    col_w_btn, col_m_btn = st.columns(2)
+    
+    with col_w_btn:
+        if st.button("🔍 Run Quick Watchlist Scan", key="run_watchlist_breakout_scan_btn", help="Scans only the stocks in your active watchlist database. Executes instantly."):
+            progress_bar = st.progress(0.0)
+            status_text = st.empty()
             
-            for line in process.stdout:
-                line_str = line.strip()
-                if "Scanning chunk" in line_str:
-                    status_text.text(line_str)
-                    try:
-                        if "[" in line_str and "]" in line_str:
-                            parts = line_str.split("]")[0].replace("[", "").split("/")
-                            curr_chunk = int(parts[0])
-                            tot_chunks = int(parts[1])
-                            progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
-                    except:
-                        pass
-                elif "Scan finished!" in line_str:
-                    status_text.text(line_str)
-                    progress_bar.progress(1.0)
+            with st.spinner("Scanning active watchlist..."):
+                cmd = [sys.executable, "scheduler.py", "--scan-breakouts", "--tickers", ",".join(active_watchlist)]
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=BASE_DIR
+                )
+                
+                for line in process.stdout:
+                    line_str = line.strip()
+                    if "Scanning chunk" in line_str:
+                        status_text.text(line_str)
+                        try:
+                            if "[" in line_str and "]" in line_str:
+                                parts = line_str.split("]")[0].replace("[", "").split("/")
+                                curr_chunk = int(parts[0])
+                                tot_chunks = int(parts[1])
+                                progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                        except:
+                            pass
+                    elif "Scan finished!" in line_str:
+                        status_text.text(line_str)
+                        progress_bar.progress(1.0)
+                
+                process.wait()
+                
+            st.success("Watchlist scan finished and cached successfully!")
+            st.rerun()
             
-            process.wait()
+    with col_m_btn:
+        if st.button("🌐 Run Full Market Scan (2,100+ Stocks)", key="run_live_breakout_scan_btn", help="Batch-downloads and scans all listed equities on the NSE. Takes ~45 seconds."):
+            progress_bar = st.progress(0.0)
+            status_text = st.empty()
             
-        st.success("Scan finished and cached successfully!")
-        st.rerun()
+            with st.spinner("Scanning all NSE listed stocks in batch..."):
+                cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    cwd=BASE_DIR
+                )
+                
+                for line in process.stdout:
+                    line_str = line.strip()
+                    if "Scanning chunk" in line_str:
+                        status_text.text(line_str)
+                        try:
+                            if "[" in line_str and "]" in line_str:
+                                parts = line_str.split("]")[0].replace("[", "").split("/")
+                                curr_chunk = int(parts[0])
+                                tot_chunks = int(parts[1])
+                                progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                        except:
+                            pass
+                    elif "Scan finished!" in line_str:
+                        status_text.text(line_str)
+                        progress_bar.progress(1.0)
+                
+                process.wait()
+                
+            st.success("Full market scan finished and cached successfully!")
+            st.rerun()
 
 # ----------------- TECHNICAL CHARTS SECTION -----------------
 st.markdown("<div class='section-header'><h3>📊 Interactive Technical Analysis Charts</h3></div>", unsafe_allow_html=True)

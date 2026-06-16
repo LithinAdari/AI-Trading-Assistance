@@ -33,12 +33,16 @@ def download_nse_symbols():
         print(f"Error downloading NSE symbols: {e}")
     return []
 
-def run_breakout_scan(progress_callback=None):
+def run_breakout_scan(progress_callback=None, symbols_list=None):
     """
-    Batch-downloads 2d daily Close prices for all NSE equities and filters for daily gain >= +10%.
+    Batch-downloads 2d daily Close prices for equities and filters for daily gain >= +10%.
     progress_callback: optional function with signature (current_chunk, total_chunks, status_msg)
     """
-    symbols = download_nse_symbols()
+    if symbols_list is not None:
+        symbols = symbols_list
+    else:
+        symbols = download_nse_symbols()
+        
     if not symbols:
         if progress_callback:
             progress_callback(1, 1, "Failed to download NSE symbols list. Aborting.")
