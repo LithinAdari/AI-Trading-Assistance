@@ -816,12 +816,19 @@ with p_list_col:
             elif curr_p <= target_stop_loss:
                 target_status_badge = "<span class='badge-danger'>🔴 SL BREACHED</span>"
                 
+            prev_p = live_market.get(t, {}).get("prev_price", curr_p)
+            day_chg_val = curr_p - prev_p
+            day_chg_color = "#10B981" if day_chg_val >= 0 else "#EF4444"
+            day_chg_sign = "+" if day_chg_val >= 0 else ""
+            day_chg_str = f"<span style='color:{day_chg_color};font-weight:600;'>{day_chg_sign}₹{day_chg_val:.2f}</span>"
+
             rows.append({
                 "ID": item["id"],
                 "Ticker": t,
                 "Qty": int(qty),
                 "Buy Price": f"₹{buy_p:.2f}",
                 "Live Price": f"₹{curr_p:.2f}",
+                "Daily Change (₹)": day_chg_str,
                 "Broker": broker,
                 "Break-Even Price": f"₹{metrics['break_even_price']:.2f}",
                 "Locked TP (Upper)": f"₹{target_take_profit:.2f}",
@@ -992,6 +999,10 @@ else:
         top_rows = []
         for item in top_10:
             sig_html = f"<span class='badge-safe'>🟢 BUY</span>" if item["Signal"] == "BUY" else f"<span class='badge-warning'>🟡 NEUTRAL</span>"
+            pred_chg_val = item["Target Price (5d)"] - item["Live Price"]
+            pred_chg_color = "#10B981" if pred_chg_val >= 0 else "#EF4444"
+            pred_chg_sign = "+" if pred_chg_val >= 0 else ""
+            pred_chg_str = f"<span style='color:{pred_chg_color};font-weight:600;'>{pred_chg_sign}₹{pred_chg_val:.2f}</span>"
             
             top_rows.append({
                 "Ticker": f"<b>{item['Ticker']}</b>",
@@ -1000,6 +1011,7 @@ else:
                 "Live Price": f"₹{item['Live Price']:.2f}",
                 "Upward Prob": f"{item['Upward Prob']:.2%}",
                 "Predicted Return (5d)": f"{item['Predicted Return']:+.2%}",
+                "Predicted Change (₹)": pred_chg_str,
                 "Val. MAE (Unseen)": f"{item['Val. MAE (Unseen)']:.4f}",
                 "RRR": f"{item['RRR']:.2f}",
                 "Target Price (5d)": f"₹{item['Target Price (5d)']:.2f}",
@@ -1112,6 +1124,7 @@ else:
                     "↑ Prob (Up)":           "—",
                     "↓ Prob (Down)":         "—",
                     "Predicted Δ (5d)":      "—",
+                    "Predicted Change (₹)":  "—",
                     "Entry / Buy At":        "—",
                     "Take-Profit":           "—",
                     "Stop-Loss":             "—",
@@ -1176,6 +1189,11 @@ else:
                 stop_cell   = f"₹{stop_loss_p:.2f}"
                 exit_cell   = "—"
 
+            pred_chg_val = take_profit - curr_p
+            pred_chg_color = "#10B981" if pred_chg_val >= 0 else "#EF4444"
+            pred_chg_sign = "+" if pred_chg_val >= 0 else ""
+            pred_chg_str = f"<span style='color:{pred_chg_color};font-weight:600;'>{pred_chg_sign}₹{pred_chg_val:.2f}</span>"
+
             rows.append({
                 "Ticker":                t,
                 "Live Price":            f"₹{curr_p:.2f}",
@@ -1184,6 +1202,7 @@ else:
                 "↑ Prob (Up)":           f"{up_prob:.2%}",
                 "↓ Prob (Down)":         f"{down_prob:.2%}",
                 "Predicted Δ (5d)":      f"{pred_return:+.2%}",
+                "Predicted Change (₹)":  pred_chg_str,
                 "Entry / Buy At":        entry_cell,
                 "Take-Profit":           target_cell,
                 "Stop-Loss":             stop_cell,
@@ -1402,10 +1421,16 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
                     missing_count += 1
                     
                 vol_formatted = f"{s['Volume']:,}" if s['Volume'] > 0 else "—"
+                day_chg_val = s['Live Price'] - s['Prev Close']
+                day_chg_color = "#10B981" if day_chg_val >= 0 else "#EF4444"
+                day_chg_sign = "+" if day_chg_val >= 0 else ""
+                day_chg_str = f"<span style='color:{day_chg_color};font-weight:700;'>{day_chg_sign}₹{day_chg_val:.2f}</span>"
+
                 table_rows.append({
                     "Ticker Symbol": f"<b>{s['Ticker']}</b>",
                     "Previous Close": f"₹{s['Prev Close']:.2f}",
                     "Live/Close Price": f"₹{s['Live Price']:.2f}",
+                    "Daily Change (₹)": day_chg_str,
                     "Daily Return": f"<span style='color:#10B981;font-weight:700;'>+{s['Change %']:.2f}%</span>",
                     "Today's Volume": vol_formatted,
                     "Pool Status": status_html
