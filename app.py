@@ -1374,15 +1374,36 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=F
         progress_bar = st.progress(0.0)
         status_text = st.empty()
         
-        def update_progress(curr, tot, msg):
-            frac = float(curr) / float(tot)
-            progress_bar.progress(min(frac, 1.0))
-            status_text.text(msg)
-            
         with st.spinner("Scanning all NSE listed stocks in batch..."):
-            results = run_breakout_scan(progress_callback=update_progress)
-            save_scan_results(results)
-        st.success(f"Scan finished! Detected {len(results)} breakout stocks.")
+            cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                cwd=BASE_DIR
+            )
+            
+            for line in process.stdout:
+                line_str = line.strip()
+                if "Scanning chunk" in line_str:
+                    status_text.text(line_str)
+                    try:
+                        if "[" in line_str and "]" in line_str:
+                            parts = line_str.split("]")[0].replace("[", "").split("/")
+                            curr_chunk = int(parts[0])
+                            tot_chunks = int(parts[1])
+                            progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                    except:
+                        pass
+                elif "Scan finished!" in line_str:
+                    status_text.text(line_str)
+                    progress_bar.progress(1.0)
+            
+            process.wait()
+            
+        st.success("Scan finished and cached successfully!")
         st.rerun()
 
 # ----------------- TECHNICAL CHARTS SECTION -----------------
