@@ -203,6 +203,48 @@ def build_ticker_features(ticker: str, start_date: datetime.date, end_date: date
     # E. RSI Extremes (+1.0 if oversold <=30, -1.0 if overbought >=70, else 0.0)
     df['Pattern_RSI_Extremes'] = np.where(df['RSI_14'] <= 30, 1.0, np.where(df['RSI_14'] >= 70, -1.0, 0.0))
 
+    # F. Shooting Star Pattern (Upper shadow >= 2x body, lower shadow <= 20% of body, body > 0)
+    df['Pattern_Shooting_Star'] = ((up_shadow >= 2 * body_size) & (low_shadow <= 0.2 * body_size) & (body_size > 0)).astype(float)
+
+    # G. Morning Star / Evening Star Pattern (+1.0 for Morning Star, -1.0 for Evening Star, else 0.0)
+    open_2 = df['Open'].shift(2)
+    close_2 = df['Close'].shift(2)
+    body_2 = (close_2 - open_2).abs()
+    open_1 = df['Open'].shift(1)
+    close_1 = df['Close'].shift(1)
+    body_1 = (close_1 - open_1).abs()
+    
+    morning_star = (close_2 < open_2) & (body_1 < 0.3 * body_2) & (df['Close'] > df['Open']) & (df['Close'] >= close_2 + 0.5 * (open_2 - close_2))
+    evening_star = (close_2 > open_2) & (body_1 < 0.3 * body_2) & (df['Close'] < df['Open']) & (df['Close'] <= close_2 - 0.5 * (close_2 - open_2))
+    df['Pattern_Morning_Evening_Star'] = np.where(morning_star, 1.0, np.where(evening_star, -1.0, 0.0))
+
+    # H. Marubozu Pattern (+1.0 for Bullish Marubozu, -1.0 for Bearish Marubozu, else 0.0)
+    bullish_maru = (df['Close'] > df['Open']) & ((df['Open'] - df['Low']) / hl_range < 0.05) & ((df['High'] - df['Close']) / hl_range < 0.05)
+    bearish_maru = (df['Close'] < df['Open']) & ((df['High'] - df['Open']) / hl_range < 0.05) & ((df['Close'] - df['Low']) / hl_range < 0.05)
+    df['Pattern_Marubozu'] = np.where(bullish_maru, 1.0, np.where(bearish_maru, -1.0, 0.0))
+
+    # I. Tweezer Tops & Bottoms (+1.0 for Tweezer Bottom, -1.0 for Tweezer Top, else 0.0)
+    tweezer_bottom = ((df['Low'] - df['Low'].shift(1)).abs() / df['Low'] < 0.001) & (df['Close'] > df['Open']) & (prev_close < prev_open)
+    tweezer_top = ((df['High'] - df['High'].shift(1)).abs() / df['High'] < 0.001) & (df['Close'] < df['Open']) & (prev_close > prev_open)
+    df['Pattern_Tweezers'] = np.where(tweezer_bottom, 1.0, np.where(tweezer_top, -1.0, 0.0))
+
+    # J. Harami Pattern (+1.0 for Bullish Harami, -1.0 for Bearish Harami, else 0.0)
+    bullish_harami = (prev_close < prev_open) & (df['Close'] > df['Open']) & (df['Open'] > prev_close) & (df['Close'] < prev_open)
+    bearish_harami = (prev_close > prev_open) & (df['Close'] < df['Open']) & (df['Open'] < prev_close) & (df['Close'] > prev_open)
+    df['Pattern_Harami'] = np.where(bullish_harami, 1.0, np.where(bearish_harami, -1.0, 0.0))
+
+    # K. Three White Soldiers / Three Black Crows (+1.0 for White Soldiers, -1.0 for Black Crows, else 0.0)
+    soldiers = (df['Close'] > df['Open']) & (close_1 > open_1) & (close_2 > open_2) & (df['Close'] > close_1) & (close_1 > close_2)
+    crows = (df['Close'] < df['Open']) & (close_1 < open_1) & (close_2 < open_2) & (df['Close'] < close_1) & (close_1 < close_2)
+    df['Pattern_Three_Candles'] = np.where(soldiers, 1.0, np.where(crows, -1.0, 0.0))
+
+    # L. MACD Divergence (+1.0 for Bullish Divergence, -1.0 for Bearish Divergence, else 0.0)
+    price_change = df['Close'] - df['Close'].shift(5)
+    macd_change = macd - macd.shift(5)
+    bullish_div = (price_change < 0) & (macd_change > 0)
+    bearish_div = (price_change > 0) & (macd_change < 0)
+    df['Pattern_MACD_Divergence'] = np.where(bullish_div, 1.0, np.where(bearish_div, -1.0, 0.0))
+
     # Join Macro Data
     # Convert indexes to datetime to ensure alignment
     df.index = pd.to_datetime(df.index)
