@@ -10,7 +10,8 @@ from broker_charges import calculate_charges
 FEATURES = [
     'RSI_14', 'ATR_14_Pct', 'Close_to_SMA_50', 'SMA_50_to_200', 'Volatility_30', 'Crude_Oil_Z',
     'MACD_Signal', 'Volume_Ratio', 'Price_Momentum_10', 'BB_Position',
-    'ADX_14', 'BB_Width', 'VPT', 'Nifty_Return_5', 'Sector_Return_5'
+    'ADX_14', 'BB_Width', 'VPT', 'Nifty_Return_5', 'Sector_Return_5',
+    'Pattern_Doji', 'Pattern_Hammer', 'Pattern_Engulfing', 'Pattern_Cross', 'Pattern_RSI_Extremes'
 ]
 
 # Try importing XGBoost. If it's not working, we fall back to RandomForest.

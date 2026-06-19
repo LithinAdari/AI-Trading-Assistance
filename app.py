@@ -625,6 +625,71 @@ def fetch_live_market_data(tickers):
         pass
     return data
 
+@st.cache_data(ttl=86400)
+def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
+    import datetime
+    import pandas as pd
+    import yfinance as yf
+    
+    tickers = list(tickers_tuple)
+    try:
+        start_dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        # end date should be at least 15 calendar days later to cover 5 trading days + weekends
+        end_dt = start_dt + datetime.timedelta(days=15)
+        
+        # Download prices in batch
+        dl_start = start_dt - datetime.timedelta(days=5)
+        dl_end = end_dt
+        
+        df = yf.download(tickers, start=dl_start, end=dl_end, progress=False)
+        if df.empty or 'Close' not in df.columns:
+            return []
+            
+        close_df = df['Close']
+        gainers = []
+        
+        for t in tickers:
+            try:
+                if t in close_df.columns:
+                    series = close_df[t].dropna()
+                else:
+                    continue
+                    
+                if series.empty:
+                    continue
+                    
+                # Find the actual date in index that is >= start_dt
+                valid_dates = series.index[series.index >= pd.Timestamp(start_dt)]
+                if len(valid_dates) == 0:
+                    continue
+                    
+                start_date_actual = valid_dates[0]
+                idx_start = series.index.get_loc(start_date_actual)
+                
+                # Check if we have 5 trading days after start_date_actual
+                if idx_start + 5 < len(series):
+                    price_start = float(series.iloc[idx_start])
+                    price_5d = float(series.iloc[idx_start + 5])
+                    
+                    if price_start > 0:
+                        ret_pct = (price_5d - price_start) / price_start * 100
+                        if ret_pct >= 10.0:
+                            gainers.append({
+                                "Ticker": t,
+                                "Start Price": price_start,
+                                "End Price (5d)": price_5d,
+                                "Change (₹)": price_5d - price_start,
+                                "Return %": ret_pct
+                            })
+            except:
+                pass
+                
+        return sorted(gainers, key=lambda x: x["Return %"], reverse=True)
+    except Exception as e:
+        print(f"Error in get_nifty500_top_gainers_cached: {e}")
+        return []
+
+
 # Compile all unique tickers that have active predictions or are in the active watchlist
 all_price_tickers = sorted(list(set(active_watchlist + list(predictions.keys()))))
 live_market = fetch_live_market_data(all_price_tickers)
@@ -1328,6 +1393,156 @@ else:
         render_table_sectorwise(build_rec_rows("SELL"), "SELL")
     with tab_neutral:
         render_table_sectorwise(build_rec_rows("NEUTRAL"), "NEUTRAL")
+
+# ----------------- MODEL RECOMMENDATION VALIDATION DASHBOARD -----------------
+st.markdown("<div class='section-header'><h3>📈 Model Recommendation Validation Dashboard</h3></div>", unsafe_allow_html=True)
+
+with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers (gaining ≥ +10%)", expanded=True):
+    st.markdown("""
+        Select a historical prediction date to validate how our model's recommendations performed compared to the actual 
+        **Top Gainers (gaining ≥ +10% over the subsequent 5 trading days)** from the Nifty 500. This lets you see 
+        if our model correctly identified real breakout gainers on that day.
+    """)
+    
+    validation_dates = set()
+    for t, pred in predictions.items():
+        for rec in pred.get("validation_errors", []):
+            if "date" in rec:
+                validation_dates.add(rec["date"])
+    sorted_dates = sorted(list(validation_dates), reverse=True)
+    
+    if not sorted_dates:
+        st.info("No historical prediction validation records found. Run the model pipeline to generate backtest validation history.")
+    else:
+        col_date_sel, col_empty = st.columns([2, 2])
+        with col_date_sel:
+            selected_date = st.selectbox("📅 Select Historical Prediction Date", options=sorted_dates, key="val_dashboard_date")
+            
+        st.markdown(f"#### 🔍 Performance Review starting from Prediction Date: **{selected_date}**")
+        
+        # Load Nifty 500 Tickers
+        nifty500_tickers = []
+        NIFTY500_CACHE_FILE = os.path.join(BASE_DIR, "nifty500_config.json")
+        if os.path.exists(NIFTY500_CACHE_FILE):
+            try:
+                with open(NIFTY500_CACHE_FILE, "r") as f:
+                    nifty_data = json.load(f)
+                nifty500_tickers = nifty_data.get("tickers", [])
+            except:
+                pass
+        if not nifty500_tickers:
+            nifty500_tickers = ALL_TICKERS
+            
+        # 1. Compile model recommendations on that date
+        model_recs_on_date = []
+        for t, pred in predictions.items():
+            for rec in pred.get("validation_errors", []):
+                if rec.get("date") == selected_date:
+                    up_prob = rec.get("clf_probability")
+                    pred_ret = rec.get("predicted_return_pct", 0.0) / 100.0
+                    
+                    if up_prob is not None:
+                        if up_prob >= 0.70 and pred_ret >= 0.015:
+                            sig = "BUY"
+                        elif (up_prob <= 0.35 and pred_ret <= -0.01) or (pred_ret <= -0.02) or (up_prob <= 0.30):
+                            sig = "SELL"
+                        else:
+                            sig = "NEUTRAL"
+                    else:
+                        if pred_ret >= 0.015:
+                            sig = "BUY"
+                        elif pred_ret <= -0.02:
+                            sig = "SELL"
+                        else:
+                            sig = "NEUTRAL"
+                            
+                    model_recs_on_date.append({
+                        "Ticker": t,
+                        "Signal": sig,
+                        "Start Price": rec.get("actual_close", 0.0),
+                        "Price 5d Later": rec.get("actual_future_close", 0.0),
+                        "Predicted Return": pred_ret,
+                        "Actual Return": rec.get("actual_return_pct", 0.0),
+                        "Clf Prob": up_prob
+                    })
+        
+        # 2. Get actual Nifty 500 top gainers on that date
+        with st.spinner("Downloading and processing Nifty 500 historical prices to find actual top gainers..."):
+            actual_top_gainers = get_nifty500_top_gainers_cached(selected_date, tuple(nifty500_tickers))
+            
+        col_gainers, col_model = st.columns(2)
+        
+        with col_gainers:
+            st.markdown(f"##### 🏆 Actual Nifty 500 Top Gainers (≥ +10% Gain in 5 Days)")
+            st.markdown(f"Found **{len(actual_top_gainers)}** stocks that gained ≥ 10% from {selected_date} over 5 trading days.")
+            if not actual_top_gainers:
+                st.info("No Nifty 500 stocks gained ≥ 10% during this 5-day window.")
+            else:
+                gainer_rows = []
+                for idx, g in enumerate(actual_top_gainers):
+                    # Highlight if our model also predicted it or if it is in active watchlist
+                    is_rec = any(item["Ticker"] == g["Ticker"] for item in model_recs_on_date)
+                    ticker_html = f"<b>{g['Ticker']}</b>"
+                    if is_rec:
+                        ticker_html += " ⭐ <span style='color:#10B981;font-size:0.85em;font-weight:600;'>[In Watchlist]</span>"
+                        
+                    gainer_rows.append({
+                        "Rank": idx + 1,
+                        "Ticker Symbol": ticker_html,
+                        "Start Price": f"₹{g['Start Price']:.2f}",
+                        "End Price (5d)": f"₹{g['End Price (5d)']:.2f}",
+                        "Change (₹)": f"<span style='color:#10B981;font-weight:600;'>+₹{g['Change (₹)']:.2f}</span>",
+                        "Actual Return %": f"<span style='color:#10B981;font-weight:700;'>+{g['Return %']:.2f}%</span>"
+                    })
+                df_g = pd.DataFrame(gainer_rows)
+                st.markdown(df_g.to_html(escape=False, index=False), unsafe_allow_html=True)
+                
+        with col_model:
+            st.markdown(f"##### 🤖 Model Recommendations & Realized Returns")
+            # Sort model recs: BUY first, then actual return desc
+            def sort_key(item):
+                sig_val = 0
+                if item["Signal"] == "BUY": sig_val = 2
+                elif item["Signal"] == "NEUTRAL": sig_val = 1
+                else: sig_val = 0
+                return (sig_val, item["Actual Return"])
+            model_recs_on_date.sort(key=sort_key, reverse=True)
+            
+            if not model_recs_on_date:
+                st.info("No model predictions available for watchlist stocks on this date.")
+            else:
+                model_rows = []
+                for item in model_recs_on_date:
+                    sig_badge = ""
+                    if item["Signal"] == "BUY":
+                        sig_badge = "<span class='badge-safe'>🟢 BUY</span>"
+                    elif item["Signal"] == "SELL":
+                        sig_badge = "<span class='badge-danger'>🔴 SELL</span>"
+                    else:
+                        sig_badge = "<span class='badge-warning'>🟡 NEUTRAL</span>"
+                        
+                    act_ret = item["Actual Return"]
+                    act_color = "#10B981" if act_ret >= 0 else "#EF4444"
+                    act_sign = "+" if act_ret >= 0 else ""
+                    
+                    # Highlight if it hit target breakout (>= 10%)
+                    is_breakout = act_ret >= 10.0
+                    ticker_html = f"<b>{item['Ticker']}</b>"
+                    if is_breakout:
+                        ticker_html += " 🔥 <span style='color:#10B981;font-size:0.85em;font-weight:600;'>[Breakout!]</span>"
+                        
+                    model_rows.append({
+                        "Ticker Symbol": ticker_html,
+                        "Signal": sig_badge,
+                        "Start Price": f"₹{item['Start Price']:.2f}",
+                        "Price 5d Later": f"₹{item['Price 5d Later']:.2f}",
+                        "Predicted Return": f"{item['Predicted Return']:+.2%}",
+                        "Actual Return %": f"<span style='color:{act_color};font-weight:700;'>{act_sign}{act_ret:.2f}%</span>"
+                    })
+                df_m = pd.DataFrame(model_rows)
+                st.markdown(df_m.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
 
 # ----------------- MARKET-WIDE BREAKOUT SCANNER SECTION -----------------
 st.markdown("<div class='section-header'><h3>⚡ Market-Wide Daily Breakout Scanner</h3></div>", unsafe_allow_html=True)

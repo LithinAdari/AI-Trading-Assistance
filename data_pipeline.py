@@ -177,6 +177,32 @@ def build_ticker_features(ticker: str, start_date: datetime.date, end_date: date
     # 5. Volume Price Trend (VPT)
     df['VPT'] = (df['Volume'] * df['Return_Daily']).rolling(window=20, min_periods=1).sum().fillna(0.0)
 
+    # 6. Chart & Candlestick Patterns
+    # A. Doji Pattern (Body size < 10% of total High-Low range)
+    hl_range = (df['High'] - df['Low']).replace(0.0, 1e-9)
+    body_size = (df['Close'] - df['Open']).abs()
+    df['Pattern_Doji'] = (body_size / hl_range < 0.1).astype(float)
+
+    # B. Hammer Pattern (Lower shadow >= 2x body, upper shadow <= 20% of body, body > 0)
+    low_shadow = df[['Open', 'Close']].min(axis=1) - df['Low']
+    up_shadow = df['High'] - df[['Open', 'Close']].max(axis=1)
+    df['Pattern_Hammer'] = ((low_shadow >= 2 * body_size) & (up_shadow <= 0.2 * body_size) & (body_size > 0)).astype(float)
+
+    # C. Engulfing Pattern (Bullish engulfing = +1.0, Bearish engulfing = -1.0, else 0.0)
+    prev_open = df['Open'].shift(1)
+    prev_close = df['Close'].shift(1)
+    bullish_eng = (df['Close'] > df['Open']) & (prev_close < prev_open) & (df['Open'] <= prev_close) & (df['Close'] >= prev_open)
+    bearish_eng = (df['Close'] < df['Open']) & (prev_close > prev_open) & (df['Open'] >= prev_close) & (df['Close'] <= prev_open)
+    df['Pattern_Engulfing'] = np.where(bullish_eng, 1.0, np.where(bearish_eng, -1.0, 0.0))
+
+    # D. Golden / Death SMA Crossovers (+1.0 for Golden Cross, -1.0 for Death Cross, else 0.0)
+    golden_cross = (df['SMA_50'] > df['SMA_200']) & (df['SMA_50'].shift(1) <= df['SMA_200'].shift(1))
+    death_cross = (df['SMA_50'] < df['SMA_200']) & (df['SMA_50'].shift(1) >= df['SMA_200'].shift(1))
+    df['Pattern_Cross'] = np.where(golden_cross, 1.0, np.where(death_cross, -1.0, 0.0))
+
+    # E. RSI Extremes (+1.0 if oversold <=30, -1.0 if overbought >=70, else 0.0)
+    df['Pattern_RSI_Extremes'] = np.where(df['RSI_14'] <= 30, 1.0, np.where(df['RSI_14'] >= 70, -1.0, 0.0))
+
     # Join Macro Data
     # Convert indexes to datetime to ensure alignment
     df.index = pd.to_datetime(df.index)
