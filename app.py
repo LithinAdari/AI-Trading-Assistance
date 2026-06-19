@@ -545,6 +545,7 @@ if retrain_btn:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Pipeline executed successfully!")
+            st.session_state.pop("val_dashboard_date", None)
             st.rerun()
         else:
             st.sidebar.error("Pipeline job failed!")
@@ -557,6 +558,7 @@ if scan_btn:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Full market scan completed successfully!")
+            st.session_state.pop("val_dashboard_date", None)
             st.rerun()
         else:
             st.sidebar.error("Full market scan failed!")
@@ -625,8 +627,7 @@ def fetch_live_market_data(tickers):
         pass
     return data
 
-@st.cache_data(ttl=86400)
-def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
+def _get_nifty500_top_gainers_raw(date_str, tickers_tuple):
     import datetime
     import pandas as pd
     import yfinance as yf
@@ -690,8 +691,20 @@ def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
                 
         return sorted(gainers, key=lambda x: x["Return %"], reverse=True)
     except Exception as e:
-        print(f"Error in get_nifty500_top_gainers_cached: {e}")
+        print(f"Error in _get_nifty500_top_gainers_raw: {e}")
         return []
+
+@st.cache_data(ttl=86400)
+def get_nifty500_top_gainers_historical(date_str, tickers_tuple):
+    return _get_nifty500_top_gainers_raw(date_str, tickers_tuple)
+
+@st.cache_data(ttl=300)
+def get_nifty500_top_gainers_live(date_str, tickers_tuple):
+    return _get_nifty500_top_gainers_raw(date_str, tickers_tuple)
+
+def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
+    # Keep wrapper for compatibility
+    return get_nifty500_top_gainers_historical(date_str, tickers_tuple)
 
 
 # Compile all unique tickers that have active predictions or are in the active watchlist
@@ -1479,7 +1492,11 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
         
         # 2. Get actual Nifty 500 top gainers on that date
         with st.spinner("Downloading and processing Nifty 500 historical prices to find actual top gainers..."):
-            actual_top_gainers = get_nifty500_top_gainers_cached(selected_date, tuple(nifty500_tickers))
+            is_in_progress = validation_dates.get(selected_date, False)
+            if is_in_progress:
+                actual_top_gainers = get_nifty500_top_gainers_live(selected_date, tuple(nifty500_tickers))
+            else:
+                actual_top_gainers = get_nifty500_top_gainers_historical(selected_date, tuple(nifty500_tickers))
             
         col_gainers, col_model = st.columns(2)
         
