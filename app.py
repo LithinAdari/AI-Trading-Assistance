@@ -666,10 +666,13 @@ def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
                 start_date_actual = valid_dates[0]
                 idx_start = series.index.get_loc(start_date_actual)
                 
-                # Check if we have 5 trading days after start_date_actual
-                if idx_start + 5 < len(series):
+                # Check if we have data after start_date_actual
+                if idx_start < len(series):
+                    idx_end = min(idx_start + 5, len(series) - 1)
+                    days_elapsed = idx_end - idx_start
+                    
                     price_start = float(series.iloc[idx_start])
-                    price_5d = float(series.iloc[idx_start + 5])
+                    price_5d = float(series.iloc[idx_end])
                     
                     if price_start > 0:
                         ret_pct = (price_5d - price_start) / price_start * 100
@@ -679,7 +682,8 @@ def get_nifty500_top_gainers_cached(date_str, tickers_tuple):
                                 "Start Price": price_start,
                                 "End Price (5d)": price_5d,
                                 "Change (₹)": price_5d - price_start,
-                                "Return %": ret_pct
+                                "Return %": ret_pct,
+                                "days_elapsed": days_elapsed
                             })
             except:
                 pass
@@ -1404,19 +1408,25 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
         if our model correctly identified real breakout gainers on that day.
     """)
     
-    validation_dates = set()
+    validation_dates = {}
     for t, pred in predictions.items():
         for rec in pred.get("validation_errors", []):
             if "date" in rec:
-                validation_dates.add(rec["date"])
-    sorted_dates = sorted(list(validation_dates), reverse=True)
+                is_prog = rec.get("is_in_progress", False)
+                validation_dates[rec["date"]] = validation_dates.get(rec["date"], False) or is_prog
+    sorted_dates = sorted(list(validation_dates.keys()), reverse=True)
     
     if not sorted_dates:
         st.info("No historical prediction validation records found. Run the model pipeline to generate backtest validation history.")
     else:
         col_date_sel, col_empty = st.columns([2, 2])
         with col_date_sel:
-            selected_date = st.selectbox("📅 Select Historical Prediction Date", options=sorted_dates, key="val_dashboard_date")
+            selected_date = st.selectbox(
+                "📅 Select Historical Prediction Date", 
+                options=sorted_dates, 
+                format_func=lambda d: f"{d} ⏳ [In Progress]" if validation_dates.get(d) else d,
+                key="val_dashboard_date"
+            )
             
         st.markdown(f"#### 🔍 Performance Review starting from Prediction Date: **{selected_date}**")
         
@@ -1463,7 +1473,8 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
                         "Price 5d Later": rec.get("actual_future_close", 0.0),
                         "Predicted Return": pred_ret,
                         "Actual Return": rec.get("actual_return_pct", 0.0),
-                        "Clf Prob": up_prob
+                        "Clf Prob": up_prob,
+                        "is_in_progress": rec.get("is_in_progress", False)
                     })
         
         # 2. Get actual Nifty 500 top gainers on that date
@@ -1473,26 +1484,30 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
         col_gainers, col_model = st.columns(2)
         
         with col_gainers:
+            top_20_gainers = actual_top_gainers[:20]
             st.markdown(f"##### 🏆 Actual Nifty 500 Top Gainers (≥ +10% Gain in 5 Days)")
-            st.markdown(f"Found **{len(actual_top_gainers)}** stocks that gained ≥ 10% from {selected_date} over 5 trading days.")
-            if not actual_top_gainers:
+            st.markdown(f"Found **{len(actual_top_gainers)}** stocks that gained ≥ 10% from {selected_date} (Showing Top 20).")
+            if not top_20_gainers:
                 st.info("No Nifty 500 stocks gained ≥ 10% during this 5-day window.")
             else:
                 gainer_rows = []
-                for idx, g in enumerate(actual_top_gainers):
+                for idx, g in enumerate(top_20_gainers):
                     # Highlight if our model also predicted it or if it is in active watchlist
                     is_rec = any(item["Ticker"] == g["Ticker"] for item in model_recs_on_date)
                     ticker_html = f"<b>{g['Ticker']}</b>"
                     if is_rec:
                         ticker_html += " ⭐ <span style='color:#10B981;font-size:0.85em;font-weight:600;'>[In Watchlist]</span>"
                         
+                    days_el = g.get("days_elapsed", 5)
+                    days_suffix = f" ({days_el}d so far)" if days_el < 5 else ""
+                    
                     gainer_rows.append({
                         "Rank": idx + 1,
                         "Ticker Symbol": ticker_html,
                         "Start Price": f"₹{g['Start Price']:.2f}",
                         "End Price (5d)": f"₹{g['End Price (5d)']:.2f}",
                         "Change (₹)": f"<span style='color:#10B981;font-weight:600;'>+₹{g['Change (₹)']:.2f}</span>",
-                        "Actual Return %": f"<span style='color:#10B981;font-weight:700;'>+{g['Return %']:.2f}%</span>"
+                        "Actual Return %": f"<span style='color:#10B981;font-weight:700;'>+{g['Return %']:.2f}%{days_suffix}</span>"
                     })
                 df_g = pd.DataFrame(gainer_rows)
                 st.markdown(df_g.to_html(escape=False, index=False), unsafe_allow_html=True)
@@ -1511,8 +1526,13 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
             if not model_recs_on_date:
                 st.info("No model predictions available for watchlist stocks on this date.")
             else:
+                top_20_model_recs = model_recs_on_date[:20]
+                st.markdown(f"##### 🤖 Model Recommendations & Realized Returns (Showing Top 20)")
                 model_rows = []
-                for item in model_recs_on_date:
+                for item in top_20_model_recs:
+                    is_prog = item.get("is_in_progress", False)
+                    prog_suffix = " (so far)" if is_prog else ""
+                    
                     sig_badge = ""
                     if item["Signal"] == "BUY":
                         sig_badge = "<span class='badge-safe'>🟢 BUY</span>"
@@ -1530,14 +1550,16 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
                     ticker_html = f"<b>{item['Ticker']}</b>"
                     if is_breakout:
                         ticker_html += " 🔥 <span style='color:#10B981;font-size:0.85em;font-weight:600;'>[Breakout!]</span>"
+                    if is_prog:
+                        ticker_html += " <span style='color:#F59E0B;font-size:0.8em;'>⏳</span>"
                         
                     model_rows.append({
                         "Ticker Symbol": ticker_html,
                         "Signal": sig_badge,
                         "Start Price": f"₹{item['Start Price']:.2f}",
-                        "Price 5d Later": f"₹{item['Price 5d Later']:.2f}",
+                        "Price 5d Later": f"₹{item['Price 5d Later']:.2f}{prog_suffix}",
                         "Predicted Return": f"{item['Predicted Return']:+.2%}",
-                        "Actual Return %": f"<span style='color:{act_color};font-weight:700;'>{act_sign}{act_ret:.2f}%</span>"
+                        "Actual Return %": f"<span style='color:{act_color};font-weight:700;'>{act_sign}{act_ret:.2f}%{prog_suffix}</span>"
                     })
                 df_m = pd.DataFrame(model_rows)
                 st.markdown(df_m.to_html(escape=False, index=False), unsafe_allow_html=True)
@@ -2039,6 +2061,8 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         actual_ret = rec["actual_return_pct"]
                         pred_ret = rec["predicted_return_pct"]
                         err_margin = rec["error_margin_pct"]
+                        is_prog = rec.get("is_in_progress", False)
+                        prog_suffix = " (so far)" if is_prog else ""
 
                         act_color = "#10B981" if actual_ret >= 0 else "#EF4444"
                         pred_color = "#10B981" if pred_ret >= 0 else "#EF4444"
@@ -2097,25 +2121,27 @@ with st.expander("📊 View Technical Analysis Charts", expanded=False):
                         # Highlight error margin magnitude
                         abs_err = abs(err_margin)
                         if abs_err < 2.0:
-                            err_badge = f"<span class='badge-safe'>{err_margin:+.2f}%</span>"
+                            err_badge = f"<span class='badge-safe'>{err_margin:+.2f}%{prog_suffix}</span>"
                         elif abs_err < 5.0:
-                            err_badge = f"<span class='badge-warning'>{err_margin:+.2f}%</span>"
+                            err_badge = f"<span class='badge-warning'>{err_margin:+.2f}%{prog_suffix}</span>"
                         else:
-                            err_badge = f"<span class='badge-danger'>{err_margin:+.2f}%</span>"
+                            err_badge = f"<span class='badge-danger'>{err_margin:+.2f}%{prog_suffix}</span>"
 
                         # Calculate predicted price 5d later in INR
                         predicted_future_close = rec['actual_close'] * (1.0 + pred_ret / 100)
+                        
+                        date_display = rec["date"] + (" <span style='color:#F59E0B;'>⏳</span>" if is_prog else "")
 
                         err_rows.append({
-                            "Date Predicted": rec["date"],
+                            "Date Predicted": date_display,
                             "Price at Prediction Date": f"₹{rec['actual_close']:.2f}",
                             "Predicted Price (5d Later)": f"₹{predicted_future_close:.2f}",
-                            "Actual Price (5d Later)": f"₹{rec['actual_future_close']:.2f}",
+                            "Actual Price (5d Later)": f"₹{rec['actual_future_close']:.2f}{prog_suffix}",
                             "Predicted Return": f"<span style='color:{pred_color};font-weight:600;'>{pred_ret:+.2f}%</span>",
-                            "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%</span>",
+                            "Actual Return": f"<span style='color:{act_color};font-weight:600;'>{actual_ret:+.2f}%{prog_suffix}</span>",
                             "Error Margin (Diff)": err_badge,
                             "Confidence": conf_badge,
-                            "Trend Match": f"<span style='color:{trend_color};font-weight:bold;font-size:1.1em;'>{is_trend_match}</span>"
+                            "Trend Match": f"<span style='color:{trend_color};font-weight:bold;font-size:1.1em;'>{is_trend_match}{prog_suffix}</span>"
                         })
 
                     df_err = pd.DataFrame(err_rows)

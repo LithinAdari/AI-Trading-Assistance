@@ -306,7 +306,7 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
     train_mae = mean_absolute_error(y_reg_full, reg.predict(X_full_labeled))
     val_mae = mean_absolute_error(y_reg_test, val_pred_reg) if len(X_test) > 0 else 0.0
     
-    # Compile validation error records
+    # Compile validation error records and append recent active (in-progress) prediction records
     val_errors = []
     if len(test_slice) > 0:
         try:
@@ -344,6 +344,56 @@ def train_models(ticker: str, df: pd.DataFrame) -> dict:
                     "clf_probability": round(clf_prob, 4),
                     "ensemble_predicted_direction": ensemble_dir
                 })
+                
+            # Append the last 5 active/in-progress trading days (where final close is not yet known)
+            df_recent = df.copy()
+            if 'Sentiment' not in df_recent.columns:
+                df_recent['Sentiment'] = 0.0
+            df_recent = df_recent.dropna(subset=FEATURES)
+            recent_rows = df_recent.tail(TRAIN_HORIZON_DAYS)
+            
+            if len(recent_rows) > 0:
+                X_recent = recent_rows[FEATURES]
+                recent_clf_preds = clf.predict(X_recent)
+                try:
+                    recent_clf_probs = clf.predict_proba(X_recent)[:, 1]
+                except AttributeError:
+                    recent_clf_probs = [0.5] * len(X_recent)
+                recent_reg_preds = reg.predict(X_recent)
+                
+                latest_close_val = float(df_recent['Close'].iloc[-1])
+                
+                for i in range(len(recent_rows)):
+                    date_t = str(recent_rows.index[i].date())
+                    close_t = float(recent_rows['Close'].iloc[i])
+                    
+                    # Return realized so far (relative to the latest session close)
+                    actual_ret_so_far = (latest_close_val - close_t) / close_t if close_t > 0 else 0.0
+                    
+                    pred_ret = float(recent_reg_preds[i])
+                    clf_pred = int(recent_clf_preds[i])
+                    clf_prob = float(recent_clf_probs[i])
+                    
+                    clf_pred_dir = 1 if clf_pred == 1 else -1
+                    reg_pred_dir = 1 if pred_ret >= 0 else -1
+                    ensemble_dir = clf_pred_dir if clf_pred_dir == reg_pred_dir else 0
+                    err_margin = pred_ret - actual_ret_so_far
+                    
+                    # Avoid duplicates
+                    if not any(r["date"] == date_t for r in raw_records):
+                        raw_records.append({
+                            "date": date_t,
+                            "actual_close": round(close_t, 2),
+                            "actual_future_close": round(latest_close_val, 2),
+                            "actual_return_pct": round(actual_ret_so_far * 100, 2),
+                            "predicted_return_pct": round(pred_ret * 100, 2),
+                            "error_margin_pct": round(err_margin * 100, 2),
+                            "clf_predicted_direction": clf_pred_dir,
+                            "clf_probability": round(clf_prob, 4),
+                            "ensemble_predicted_direction": ensemble_dir,
+                            "is_in_progress": True
+                        })
+                        
             val_errors = raw_records
         except Exception as e:
             print(f"Error compiling validation errors for {ticker}: {e}")
