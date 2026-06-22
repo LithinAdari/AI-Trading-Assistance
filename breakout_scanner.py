@@ -64,34 +64,44 @@ def run_breakout_scan(progress_callback=None, symbols_list=None):
             
         try:
             # yf.download handles batch querying in parallel
-            data = yf.download(chunk, period="2d", group_by='ticker', progress=False)
+            data = yf.download(chunk, period="5d", group_by='ticker', progress=False)
             
             for ticker in chunk:
                 try:
-                    if ticker in data.columns.get_level_values(0):
-                        ticker_df = data[ticker]
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if ticker in data.columns.get_level_values(0):
+                            ticker_df = data[ticker]
+                        else:
+                            continue
                     else:
-                        continue
+                        ticker_df = data
                         
-                    if 'Close' in ticker_df.columns:
+                    if 'Close' in ticker_df.columns and 'Volume' in ticker_df.columns:
                         close_series = ticker_df['Close'].dropna()
-                        if len(close_series) >= 2:
+                        vol_series = ticker_df['Volume'].dropna()
+                        
+                        if len(close_series) >= 2 and len(vol_series) >= 2:
                             prev_close = float(close_series.iloc[-2])
                             curr_close = float(close_series.iloc[-1])
                             
                             if prev_close > 0:
                                 pct_change = (curr_close - prev_close) / prev_close * 100
-                                if pct_change >= 10.0:
-                                    volume = 0
-                                    if 'Volume' in ticker_df.columns:
-                                        volume = int(ticker_df['Volume'].dropna().iloc[-1])
-                                    breakout_stocks.append({
-                                        "Ticker": ticker,
-                                        "Prev Close": round(prev_close, 2),
-                                        "Live Price": round(curr_close, 2),
-                                        "Change %": round(pct_change, 2),
-                                        "Volume": volume
-                                    })
+                                
+                                # Pre-breakout momentum filter: +1.5% to +7.0%
+                                if 1.5 <= pct_change <= 7.0:
+                                    curr_vol = int(vol_series.iloc[-1])
+                                    # Calculate average volume of the previous days (up to 4 days)
+                                    prev_vol_avg = vol_series.iloc[:-1].mean()
+                                    
+                                    # Volume surge confirmation: >= 1.5x average
+                                    if prev_vol_avg > 0 and curr_vol >= 1.5 * prev_vol_avg:
+                                        breakout_stocks.append({
+                                            "Ticker": ticker,
+                                            "Prev Close": round(prev_close, 2),
+                                            "Live Price": round(curr_close, 2),
+                                            "Change %": round(pct_change, 2),
+                                            "Volume": curr_vol
+                                        })
                 except Exception:
                     pass
         except Exception as chunk_err:

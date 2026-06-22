@@ -483,7 +483,7 @@ def score_latest_session(ticker: str, latest_row: pd.DataFrame, latest_sentiment
     signal = "NEUTRAL"
     signal_reason = "Model has no strong directional edge. Stay in cash or hold."
     
-    if up_prob >= 0.70 and pred_return >= 0.015:
+    if (up_prob >= 0.70 and pred_return >= 0.015) or pred_return >= 0.10:
         signal = "BUY"
         signal_reason = f"Model has {up_prob:.0%} confidence of a rise with +{pred_return:.2%} predicted return (sentiment adjusted) in {TRAIN_HORIZON_DAYS} trading days."
     elif up_prob <= 0.35 and pred_return <= -0.01:

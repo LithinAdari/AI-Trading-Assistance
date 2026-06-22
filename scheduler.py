@@ -28,15 +28,98 @@ def main():
     
     # 1. Check if we should only run the breakout scan
     if args.scan_breakouts:
-        print("--- Initiating Breakout Scan (+10% Changers) ---")
+        print("--- Initiating Predictive Breakout Scan (Pre-Breakout Filter -> ML Prediction) ---")
         try:
             target_symbols = None
             if args.tickers:
                 target_symbols = [t.strip() for t in args.tickers.split(",") if t.strip()]
                 print(f"Targeting custom list of {len(target_symbols)} tickers.")
-            results = run_breakout_scan(progress_callback=lambda curr, tot, msg: print(f"[{curr}/{tot}] {msg}"), symbols_list=target_symbols)
-            save_scan_results(results)
-            print("--- Breakout Scan Completed Successfully ---")
+                
+            # Phase 1: Filter candidates
+            candidates = run_breakout_scan(progress_callback=lambda curr, tot, msg: print(f"[{curr}/{tot}] {msg}"), symbols_list=target_symbols)
+            
+            if not candidates:
+                print("No pre-breakout candidates found. Exiting.")
+                save_scan_results([])
+                sys.exit(0)
+                
+            candidate_tickers = [c["Ticker"] for c in candidates]
+            print(f"--- Phase 2: Running ML Prediction Pipeline on {len(candidate_tickers)} candidates ---")
+            
+            # Get sentiments
+            sentiments = {t: 0.0 for t in candidate_tickers}
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            def fetch_sentiment_worker(ticker):
+                try:
+                    res = get_ticker_news_sentiment(ticker)
+                    return ticker, res["average_sentiment"]
+                except Exception:
+                    return ticker, 0.0
+                    
+            max_workers = min(20, len(candidate_tickers))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_ticker = {executor.submit(fetch_sentiment_worker, ticker): ticker for ticker in candidate_tickers}
+                for future in as_completed(future_to_ticker):
+                    ticker, score = future.result()
+                    sentiments[ticker] = score
+                    
+            # Run ML Pipeline
+            datasets = get_complete_dataset(tickers=candidate_tickers)
+            recs_dict = train_and_predict_all(datasets, sentiments)
+            
+            # Map recs back to dictionary by ticker for easy lookup
+            recs_by_ticker = {r["ticker"]: r for r in recs_dict} if isinstance(recs_dict, list) else recs_dict
+            
+            # Filter for >= 10% predicted return
+            predicted_breakouts = []
+            for c in candidates:
+                t = c["Ticker"]
+                if t in recs_by_ticker:
+                    # predictions save return as fraction (e.g. 0.12)
+                    pred_ret = recs_by_ticker[t].get("predicted_return", 0.0) * 100.0
+                    if pred_ret >= 10.0:
+                        c["Predicted Return %"] = round(pred_ret, 2)
+                        predicted_breakouts.append(c)
+                        
+                        # Automatically add to custom_tickers.json so it appears in the watchlist / Neural Analyst sections
+                        try:
+                            from config import BASE_DIR
+                            CUSTOM_TICKERS_FILE = os.path.join(BASE_DIR, "custom_tickers.json")
+                            custom_data = {"tickers": [], "sectors": {}}
+                            if os.path.exists(CUSTOM_TICKERS_FILE):
+                                with open(CUSTOM_TICKERS_FILE, "r") as f:
+                                    custom_data = json.load(f)
+                            
+                            tickers_list = custom_data.setdefault("tickers", [])
+                            sectors_dict = custom_data.setdefault("sectors", {})
+                            
+                            if t not in tickers_list:
+                                # Fetch sector
+                                industry = "Breakout Scans"
+                                try:
+                                    ticker_info = yf.Ticker(t).info
+                                    fetched_ind = ticker_info.get("industry")
+                                    if fetched_ind:
+                                        industry = fetched_ind
+                                except Exception:
+                                    pass
+                                
+                                tickers_list.append(t)
+                                sectors_dict.setdefault(industry, []).append(t)
+                                
+                                custom_data["tickers"] = sorted(list(set(tickers_list)))
+                                for s_name in sectors_dict:
+                                    sectors_dict[s_name] = sorted(list(set(sectors_dict[s_name])))
+                                custom_data["sectors"] = sectors_dict
+                                
+                                with open(CUSTOM_TICKERS_FILE, "w") as f:
+                                    json.dump(custom_data, f, indent=4)
+                                print(f"Successfully auto-added {t} to watchlist under sector '{industry}'")
+                        except Exception as add_err:
+                            print(f"Failed to auto-add {t} to watchlist: {add_err}")
+                        
+            save_scan_results(predicted_breakouts)
+            print(f"--- Predictive Breakout Scan Completed Successfully. Found {len(predicted_breakouts)} future breakouts. ---")
             sys.exit(0)
         except Exception as e:
             print(f"Error running breakout scan: {e}")

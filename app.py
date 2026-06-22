@@ -1584,7 +1584,7 @@ with st.expander("📈 Validate Recommendations vs. Actual Nifty 500 Top Gainers
     st.markdown("<br><br>", unsafe_allow_html=True)
 
 # ----------------- MARKET-WIDE BREAKOUT SCANNER SECTION -----------------
-st.markdown("<div class='section-header'><h3>⚡ Market-Wide Daily Breakout Scanner</h3></div>", unsafe_allow_html=True)
+st.markdown("<div class='section-header'><h3>⚡ Market-Wide AI Breakout Predictor</h3></div>", unsafe_allow_html=True)
 
 # Main action row for live data
 col_status, col_action_btn = st.columns([2, 1])
@@ -1594,20 +1594,20 @@ last_scan_time_str = scan_data['last_scan_time'] if scan_data else "No Scan Hist
 
 col_status.markdown(f"""
 <div style='padding: 12px; background-color: rgba(30, 41, 59, 0.4); border-radius: 8px; border: 1px solid #334155;'>
-    ⏱️ <b>Last Full Market Scan:</b> <code>{last_scan_time_str}</code><br/>
-    <span style='font-size: 0.85em; color: #94A3B8;'>Click 'Get Live Data' to fetch the latest current day breakout listings.</span>
+     ⏱️ <b>Last Prediction Scan:</b> <code>{last_scan_time_str}</code><br/>
+     <span style='font-size: 0.85em; color: #94A3B8;'>Click 'Predict Future Breakouts' to scan and run the XGBoost AI model on candidates.</span>
 </div>
 """, unsafe_allow_html=True)
 
 with col_action_btn:
     st.markdown("<div style='height: 5px;'></div>", unsafe_allow_html=True)
-    get_live_btn = st.button("⚡ Get Live Data (Current Day)", key="get_live_current_day_btn", help="Triggers a full live scan of all 2,100+ stocks for the current day. Takes ~45s.")
+    get_live_btn = st.button("🔮 Predict Future Breakouts", key="get_live_current_day_btn", help="Triggers a full scan for pre-breakout momentum setups and runs XGBoost prediction models on candidates. Takes ~2-3 mins.")
 
 if get_live_btn:
     progress_bar = st.progress(0.0)
     status_text = st.empty()
     
-    with st.spinner("Scanning all NSE listed stocks for current day live breakouts..."):
+    with st.spinner("Executing predictive breakout scan and model training..."):
         cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
         process = subprocess.Popen(
             cmd,
@@ -1621,35 +1621,50 @@ if get_live_btn:
         for line in process.stdout:
             line_str = line.strip()
             if "Scanning chunk" in line_str:
-                status_text.text(line_str)
+                status_text.text(f"Phase 1: {line_str}")
                 try:
                     if "[" in line_str and "]" in line_str:
                         parts = line_str.split("]")[0].replace("[", "").split("/")
                         curr_chunk = int(parts[0])
                         tot_chunks = int(parts[1])
-                        progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                        # Map Phase 1 to 0% - 50% progress
+                        progress_bar.progress(min((float(curr_chunk) / float(tot_chunks)) * 0.5, 0.5))
                 except:
                     pass
-            elif "Scan finished!" in line_str:
+            elif "Running ML Prediction Pipeline" in line_str:
+                status_text.text(f"Phase 2: {line_str}")
+                progress_bar.progress(0.6)
+            elif "Training XGBoost Model" in line_str:
+                status_text.text(f"Phase 2: {line_str}")
+                try:
+                    if "[" in line_str and "]" in line_str:
+                        parts = line_str.split("]")[0].replace("[", "").split("/")
+                        curr_t = int(parts[0])
+                        tot_t = int(parts[1])
+                        # Map Phase 2 to 50% - 100% progress
+                        progress_bar.progress(0.5 + min((float(curr_t) / float(tot_t)) * 0.5, 0.5))
+                except:
+                    pass
+            elif "Scan finished!" in line_str or "Predictive Breakout Scan Completed" in line_str:
                 status_text.text(line_str)
                 progress_bar.progress(1.0)
         
         process.wait()
         
-    st.success("Live breakout data for the current day retrieved and saved!")
+    st.success("Predictive breakout scan completed and recommendations updated!")
     st.rerun()
 
-with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=True):
+with st.expander("⚡ View AI-Predicted Future Breakouts (≥ +10% Expected Gain)", expanded=True):
     st.markdown("""
-        This tool scans the entire National Stock Exchange (NSE) of India (over 2,100+ listed symbols) for stocks trading with 
-        a day change of **+10% or more**. Daily breakout results can be permanently saved to your watchlist database.
+        This tool scans the entire NSE (over 2,100+ symbols) for early breakout setups (stocks gaining 1.5% to 7% on high volume), 
+        and runs them through the Machine Learning engine. Below are the stocks **predicted by the AI model to gain 10% or more** in the next 5 days.
     """)
     
     if scan_data:
         stocks = scan_data.get("stocks", [])
         
         # --- Price Range Filter for Breakout Scanner ---
-        with st.expander("🔍 Filter Breakouts by Price Range", expanded=False):
+        with st.expander("🔍 Filter Predictions by Price Range", expanded=False):
             b_min_default = global_min_p if use_global_price_filter else 0.0
             b_max_default = global_max_p if use_global_price_filter else 100000.0
             b_col1, b_col2 = st.columns(2)
@@ -1659,7 +1674,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
         filtered_stocks = [s for s in stocks if b_min_p <= s["Live Price"] <= b_max_p]
         
         if not filtered_stocks:
-            st.info("No breakout stocks match the selected price range.")
+            st.info("No predicted breakout stocks match the selected price range.")
         else:
             # Build list of dicts for presentation
             table_rows = []
@@ -1679,6 +1694,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
                 day_chg_color = "#10B981" if day_chg_val >= 0 else "#EF4444"
                 day_chg_sign = "+" if day_chg_val >= 0 else ""
                 day_chg_str = f"<span style='color:{day_chg_color};font-weight:700;'>{day_chg_sign}₹{day_chg_val:.2f}</span>"
+                pred_chg = s.get("Predicted Return %", 0.0)
 
                 table_rows.append({
                     "Ticker Symbol": f"<b>{s['Ticker']}</b>",
@@ -1687,6 +1703,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
                     "Daily Change (₹)": day_chg_str,
                     "Daily Return": f"<span style='color:#10B981;font-weight:700;'>+{s['Change %']:.2f}%</span>",
                     "Today's Volume": vol_formatted,
+                    "AI Predicted Gain": f"<span style='color:#10B981;font-weight:700;'>+{pred_chg:.2f}%</span>",
                     "Pool Status": status_html
                 })
             df_breakout = pd.DataFrame(table_rows)
@@ -1698,7 +1715,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
             col_add_sel, col_add_btn = st.columns([2.0, 1.0])
             with col_add_sel:
                 ticker_to_add = st.selectbox(
-                    "Select a Breakout Stock to Monitor",
+                    "Select a Predicted Breakout Stock to Monitor",
                     options=[s["Ticker"] for s in filtered_stocks],
                     key="breakout_watchlist_selectbox"
                 )
@@ -1739,16 +1756,29 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
                 for line in process.stdout:
                     line_str = line.strip()
                     if "Scanning chunk" in line_str:
-                        status_text.text(line_str)
+                        status_text.text(f"Phase 1: {line_str}")
                         try:
                             if "[" in line_str and "]" in line_str:
                                 parts = line_str.split("]")[0].replace("[", "").split("/")
                                 curr_chunk = int(parts[0])
                                 tot_chunks = int(parts[1])
-                                progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                                progress_bar.progress(min((float(curr_chunk) / float(tot_chunks)) * 0.5, 0.5))
                         except:
                             pass
-                    elif "Scan finished!" in line_str:
+                    elif "Running ML Prediction Pipeline" in line_str:
+                        status_text.text(f"Phase 2: {line_str}")
+                        progress_bar.progress(0.6)
+                    elif "Training XGBoost Model" in line_str:
+                        status_text.text(f"Phase 2: {line_str}")
+                        try:
+                            if "[" in line_str and "]" in line_str:
+                                parts = line_str.split("]")[0].replace("[", "").split("/")
+                                curr_t = int(parts[0])
+                                tot_t = int(parts[1])
+                                progress_bar.progress(0.5 + min((float(curr_t) / float(tot_t)) * 0.5, 0.5))
+                        except:
+                            pass
+                    elif "Scan finished!" in line_str or "Predictive Breakout Scan Completed" in line_str:
                         status_text.text(line_str)
                         progress_bar.progress(1.0)
                 
@@ -1758,7 +1788,7 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
             st.rerun()
             
     with col_m_btn:
-        if st.button("🌐 Run Full Market Scan (2,100+ Stocks)", key="run_live_breakout_scan_btn", help="Batch-downloads and scans all listed equities on the NSE. Takes ~45 seconds."):
+        if st.button("🌐 Run Full Market Scan (2,100+ Stocks)", key="run_live_breakout_scan_btn", help="Batch-downloads and scans all listed equities on the NSE. Takes ~2-3 mins."):
             progress_bar = st.progress(0.0)
             status_text = st.empty()
             
@@ -1776,16 +1806,29 @@ with st.expander("⚡ View Daily Breakout Stocks (≥ +10% Gainers)", expanded=T
                 for line in process.stdout:
                     line_str = line.strip()
                     if "Scanning chunk" in line_str:
-                        status_text.text(line_str)
+                        status_text.text(f"Phase 1: {line_str}")
                         try:
                             if "[" in line_str and "]" in line_str:
                                 parts = line_str.split("]")[0].replace("[", "").split("/")
                                 curr_chunk = int(parts[0])
                                 tot_chunks = int(parts[1])
-                                progress_bar.progress(min(float(curr_chunk) / float(tot_chunks), 1.0))
+                                progress_bar.progress(min((float(curr_chunk) / float(tot_chunks)) * 0.5, 0.5))
                         except:
                             pass
-                    elif "Scan finished!" in line_str:
+                    elif "Running ML Prediction Pipeline" in line_str:
+                        status_text.text(f"Phase 2: {line_str}")
+                        progress_bar.progress(0.6)
+                    elif "Training XGBoost Model" in line_str:
+                        status_text.text(f"Phase 2: {line_str}")
+                        try:
+                            if "[" in line_str and "]" in line_str:
+                                parts = line_str.split("]")[0].replace("[", "").split("/")
+                                curr_t = int(parts[0])
+                                tot_t = int(parts[1])
+                                progress_bar.progress(0.5 + min((float(curr_t) / float(tot_t)) * 0.5, 0.5))
+                        except:
+                            pass
+                    elif "Scan finished!" in line_str or "Predictive Breakout Scan Completed" in line_str:
                         status_text.text(line_str)
                         progress_bar.progress(1.0)
                 
