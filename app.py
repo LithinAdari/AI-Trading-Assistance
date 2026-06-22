@@ -1654,10 +1654,10 @@ if get_live_btn:
     st.success("Predictive breakout scan completed and recommendations updated!")
     st.rerun()
 
-with st.expander("⚡ View AI-Predicted Future Breakouts (≥ +10% Expected Gain)", expanded=True):
+with st.expander("⚡ View AI-Predicted Future Breakouts", expanded=True):
     st.markdown("""
         This tool scans the entire NSE (over 2,100+ symbols) for early breakout setups (stocks gaining 1.5% to 7% on high volume), 
-        and runs them through the Machine Learning engine. Below are the stocks **predicted by the AI model to gain 10% or more** in the next 5 days.
+        and runs them through the Machine Learning engine. Below are the detected pre-breakout candidate stocks along with their 5-day AI predictions and signals.
     """)
     
     if scan_data:
@@ -1695,6 +1695,16 @@ with st.expander("⚡ View AI-Predicted Future Breakouts (≥ +10% Expected Gain
                 day_chg_sign = "+" if day_chg_val >= 0 else ""
                 day_chg_str = f"<span style='color:{day_chg_color};font-weight:700;'>{day_chg_sign}₹{day_chg_val:.2f}</span>"
                 pred_chg = s.get("Predicted Return %", 0.0)
+                pred_chg_color = "#10B981" if pred_chg >= 0 else "#EF4444"
+                pred_chg_sign = "+" if pred_chg >= 0 else ""
+                
+                sig_raw = s.get("Signal", "NEUTRAL")
+                if sig_raw == "BUY":
+                    sig_badge = "<span class='badge-safe'>🟢 BUY</span>"
+                elif sig_raw == "SELL":
+                    sig_badge = "<span class='badge-danger'>🔴 SELL</span>"
+                else:
+                    sig_badge = "<span class='badge-warning'>🟡 NEUTRAL</span>"
 
                 table_rows.append({
                     "Ticker Symbol": f"<b>{s['Ticker']}</b>",
@@ -1703,7 +1713,8 @@ with st.expander("⚡ View AI-Predicted Future Breakouts (≥ +10% Expected Gain
                     "Daily Change (₹)": day_chg_str,
                     "Daily Return": f"<span style='color:#10B981;font-weight:700;'>+{s['Change %']:.2f}%</span>",
                     "Today's Volume": vol_formatted,
-                    "AI Predicted Gain": f"<span style='color:#10B981;font-weight:700;'>+{pred_chg:.2f}%</span>",
+                    "AI Prediction": f"<span style='color:{pred_chg_color};font-weight:700;'>{pred_chg_sign}{pred_chg:.2f}%</span>",
+                    "AI Signal": sig_badge,
                     "Pool Status": status_html
                 })
             df_breakout = pd.DataFrame(table_rows)

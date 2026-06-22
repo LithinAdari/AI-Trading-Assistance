@@ -70,18 +70,19 @@ def main():
             # Map recs back to dictionary by ticker for easy lookup
             recs_by_ticker = {r["ticker"]: r for r in recs_dict} if isinstance(recs_dict, list) else recs_dict
             
-            # Filter for >= 10% predicted return
+            # Populate predictions for candidates
             predicted_breakouts = []
             for c in candidates:
                 t = c["Ticker"]
                 if t in recs_by_ticker:
                     # predictions save return as fraction (e.g. 0.12)
                     pred_ret = recs_by_ticker[t].get("predicted_return", 0.0) * 100.0
+                    c["Predicted Return %"] = round(pred_ret, 2)
+                    c["Signal"] = recs_by_ticker[t].get("signal", "NEUTRAL")
+                    predicted_breakouts.append(c)
+                    
+                    # Automatically add to custom_tickers.json only if expected return is high (>= 10%)
                     if pred_ret >= 10.0:
-                        c["Predicted Return %"] = round(pred_ret, 2)
-                        predicted_breakouts.append(c)
-                        
-                        # Automatically add to custom_tickers.json so it appears in the watchlist / Neural Analyst sections
                         try:
                             from config import BASE_DIR
                             CUSTOM_TICKERS_FILE = os.path.join(BASE_DIR, "custom_tickers.json")
@@ -119,7 +120,7 @@ def main():
                             print(f"Failed to auto-add {t} to watchlist: {add_err}")
                         
             save_scan_results(predicted_breakouts)
-            print(f"--- Predictive Breakout Scan Completed Successfully. Found {len(predicted_breakouts)} future breakouts. ---")
+            print(f"--- Predictive Breakout Scan Completed Successfully. Found {len(predicted_breakouts)} predictions. ---")
             sys.exit(0)
         except Exception as e:
             print(f"Error running breakout scan: {e}")
