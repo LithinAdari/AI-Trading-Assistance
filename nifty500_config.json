@@ -481,12 +481,9 @@
         "URBANCO.NS",
         "USHAMART.NS",
         "UTIAMC.NS",
-        "VAML.NS",
         "VBL.NS",
         "VEDL.NS",
-        "VEDPOWER.NS",
         "VIJAYA.NS",
-        "VISL.NS",
         "VMM.NS",
         "VOGL.NS",
         "VOLTAS.NS",
@@ -709,8 +706,7 @@
             "RPOWER.NS",
             "SJVN.NS",
             "TATAPOWER.NS",
-            "TORNTPOWER.NS",
-            "VEDPOWER.NS"
+            "TORNTPOWER.NS"
         ],
         "Fast Moving Consumer Goods": [
             "AWL.NS",
@@ -839,8 +835,6 @@
             "SARDAEN.NS",
             "SAIL.NS",
             "TATASTEEL.NS",
-            "VAML.NS",
-            "VISL.NS",
             "VEDL.NS"
         ],
         "Services": [

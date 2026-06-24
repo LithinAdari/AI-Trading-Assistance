@@ -532,8 +532,13 @@ if import_trending_btn:
 
 # Action buttons
 st.sidebar.subheader("Model Operations")
+force_retrain_chk = st.sidebar.checkbox(
+    "🔄 Force Retrain Models", 
+    value=False, 
+    help="If checked, ignores cached models and retrains all ML models from scratch. If unchecked, uses Fast Mode (seconds instead of minutes)."
+)
 retrain_btn = st.sidebar.button("⚙️ Run Watchlist Pipeline", help="Re-downloads price history, crawls news headlines, and updates ML models for the active watchlist.")
-scan_btn = st.sidebar.button("🔍 Run Full Market Scan", help="Re-downloads price history, crawls news headlines, and updates ML models for ALL sectors and tickers (takes ~2 minutes).")
+scan_btn = st.sidebar.button("🔍 Run Full Market Scan", help="Re-downloads price history, crawls news headlines, and updates ML models for ALL sectors and tickers.")
 
 # Display job log output container in sidebar if run
 log_container = st.sidebar.empty()
@@ -542,6 +547,8 @@ if retrain_btn:
     with st.spinner("Executing Watchlist ML Pipeline..."):
         # Run scheduler as subprocess
         cmd = [sys.executable, "scheduler.py", "--tickers", ",".join(active_watchlist)]
+        if force_retrain_chk:
+            cmd.append("--force-retrain")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Pipeline executed successfully!")
@@ -555,6 +562,8 @@ if scan_btn:
     with st.spinner("Executing Full Market Scan (All Sectors)..."):
         # Run scheduler as subprocess with --all-sectors
         cmd = [sys.executable, "scheduler.py", "--all-sectors"]
+        if force_retrain_chk:
+            cmd.append("--force-retrain")
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode == 0:
             st.sidebar.success("Full market scan completed successfully!")
@@ -1002,8 +1011,8 @@ with p_list_col:
                 st.success("Holding deleted!")
                 st.rerun()
 
-# ----------------- TOP 10 RECOMMENDATIONS PANEL -----------------
-st.markdown("<div class='section-header'><h3>🏆 Top 10 Buy Recommendations Matrix</h3></div>", unsafe_allow_html=True)
+# ----------------- TOP 25 Profitable Buy Recommendations Matrix -----------------
+st.markdown("<div class='section-header'><h3>🏆 Top 25 Buy Recommendations Matrix</h3></div>", unsafe_allow_html=True)
 
 if not predictions:
     st.info("No recommendation data found. Run a 'Full Market Scan' in the sidebar to generate recommendations.")
@@ -1016,10 +1025,14 @@ else:
         r_min_p = r_col1.number_input("Min Price (₹)", value=r_min_default, min_value=0.0, key="rec_min_price_filter")
         r_max_p = r_col2.number_input("Max Price (₹)", value=r_max_default, min_value=0.0, key="rec_max_price_filter")
 
-    # Compile all BUY/highly bullish recommendations across all loaded predictions
+    # Compile all BUY/highly profitable buy recommendations across all loaded predictions
     bullish_recs = []
     for t, pred in predictions.items():
         sig = pred.get("signal", "NEUTRAL")
+        # Filter exclusively for BUY signals to show only profitable recommendations
+        if sig != "BUY":
+            continue
+            
         curr_p = live_market.get(t, {}).get("live_price", pred.get("current_price", 0.0))
         if curr_p == 0.0:
             continue
@@ -1056,31 +1069,22 @@ else:
             "Reasoning": pred.get("signal_reason", "")
         })
         
-    # Sort: BUY signals first, then NEUTRAL, then SELL
-    # Within each signal, sort by upward_probability descending, then predicted_return descending, then RRR descending
+    # Sort primarily by Predicted Return in descending order to show the most profitable stocks at the top
     def ranking_key(item):
-        sig_priority = 0
-        if item["Signal"] == "BUY":
-            sig_priority = 2
-        elif item["Signal"] == "NEUTRAL":
-            sig_priority = 1
-        else:
-            sig_priority = 0
-            
-        return (sig_priority, item["Upward Prob"], item["Predicted Return"], item["RRR"])
+        return (item["Predicted Return"], item["Upward Prob"], item["RRR"])
         
     bullish_recs.sort(key=ranking_key, reverse=True)
-    top_10 = bullish_recs[:10]
+    top_25 = bullish_recs[:25]
     
-    if not top_10:
-        st.info("No recommendations found matching the selected price range.")
+    if not top_25:
+        st.info("No buy recommendations found matching the selected price range.")
     else:
-        st.markdown("<small style='color: #64748B;'>The following are the top 10 ranked buy recommendations across all sectors based on classifier confidence, expected return, and validation truth (Val MAE).</small>", unsafe_allow_html=True)
+        st.markdown("<small style='color: #64748B;'>The following are the top 25 ranked buy recommendations across all sectors based on predicted return, classifier confidence, and validation truth (Val MAE).</small>", unsafe_allow_html=True)
         
         # Format the table beautifully
         top_rows = []
-        for item in top_10:
-            sig_html = f"<span class='badge-safe'>🟢 BUY</span>" if item["Signal"] == "BUY" else f"<span class='badge-warning'>🟡 NEUTRAL</span>"
+        for item in top_25:
+            sig_html = f"<span class='badge-safe'>🟢 BUY</span>"
             pred_chg_val = item["Target Price (5d)"] - item["Live Price"]
             pred_chg_color = "#10B981" if pred_chg_val >= 0 else "#EF4444"
             pred_chg_sign = "+" if pred_chg_val >= 0 else ""
@@ -1609,6 +1613,8 @@ if get_live_btn:
     
     with st.spinner("Executing predictive breakout scan and model training..."):
         cmd = [sys.executable, "scheduler.py", "--scan-breakouts"]
+        if force_retrain_chk:
+            cmd.append("--force-retrain")
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,

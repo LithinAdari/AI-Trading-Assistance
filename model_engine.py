@@ -515,19 +515,55 @@ def score_latest_session(ticker: str, latest_row: pd.DataFrame, latest_sentiment
         "forecast_horizon_days": TRAIN_HORIZON_DAYS
     }
 
-def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
+def train_and_predict_all(datasets: dict, sentiments: dict, force_retrain: bool = False) -> list:
     """
-    Loops through all ticker datasets, trains their models, generates predictions
+    Loops through all ticker datasets, trains or loads their models, generates predictions
     for the latest session in parallel, and writes recommendations to recommendations.json.
     """
     recs = []
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    import json
     
+    # Load cached recommendations to reuse performance metrics in Fast Mode
+    cache = {}
+    if os.path.exists(RECOMMENDATIONS_FILE):
+        try:
+            with open(RECOMMENDATIONS_FILE, "r") as f:
+                for item in json.load(f):
+                    if isinstance(item, dict) and "ticker" in item:
+                        cache[item["ticker"]] = {
+                            "train_accuracy": item.get("train_accuracy", 0.0),
+                            "val_accuracy": item.get("val_accuracy", 0.0),
+                            "train_mae": item.get("train_mae", 0.0),
+                            "val_mae": item.get("val_mae", 0.0),
+                            "algorithm": item.get("model_algorithm", "Unknown"),
+                            "train_trading_days": item.get("train_trading_days", 0),
+                            "validation_trading_days": item.get("validation_trading_days", 0),
+                            "total_trading_days": item.get("total_trading_days", 0),
+                            "train_start_date": item.get("train_start_date", ""),
+                            "train_end_date": item.get("train_end_date", ""),
+                            "validation_start_date": item.get("validation_start_date", ""),
+                            "validation_end_date": item.get("validation_end_date", ""),
+                            "validation_errors": item.get("validation_errors", [])
+                        }
+        except Exception:
+            pass
+
     def process_train_and_predict(ticker, df):
         try:
-            metrics = train_models(ticker, df)
-            if "error" in metrics:
-                return None
+            clf_path = os.path.join(MODELS_DIR, f"{ticker}_classifier.pkl")
+            reg_path = os.path.join(MODELS_DIR, f"{ticker}_regressor.pkl")
+            
+            # Fast Mode / Caching: If models exist, cache is available, and retraining is not forced, skip training
+            cached_metrics = cache.get(ticker) if (not force_retrain and os.path.exists(clf_path) and os.path.exists(reg_path)) else None
+            
+            if cached_metrics:
+                metrics = cached_metrics
+            else:
+                print(f"[{ticker}] Training XGBoost/RF models from scratch...")
+                metrics = train_models(ticker, df)
+                if "error" in metrics:
+                    return None
                 
             latest_row = df.tail(1)
             current_price = float(df['Close'].iloc[-1])
@@ -569,7 +605,6 @@ def train_and_predict_all(datasets: dict, sentiments: dict) -> list:
             
     # Write to recommendations.json
     try:
-        import json
         existing_recs = []
         if os.path.exists(RECOMMENDATIONS_FILE):
             try:

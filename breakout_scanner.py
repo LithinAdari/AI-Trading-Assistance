@@ -87,8 +87,8 @@ def run_breakout_scan(progress_callback=None, symbols_list=None):
                             if prev_close > 0:
                                 pct_change = (curr_close - prev_close) / prev_close * 100
                                 
-                                # Pre-breakout momentum filter: +1.5% to +7.0%
-                                if 1.5 <= pct_change <= 7.0:
+                                # Momentum filter: include pre-breakouts and actual breakouts (+10% or higher)
+                                if 1.5 <= pct_change <= 30.0:
                                     curr_vol = int(vol_series.iloc[-1])
                                     # Calculate average volume of the previous days (up to 4 days)
                                     prev_vol_avg = vol_series.iloc[:-1].mean()
